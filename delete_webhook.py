@@ -3,7 +3,7 @@ import requests
 import time
 
 # توکن ربات را اینجا وارد کنید
-BOT_TOKEN = "7251591978:AAGByzxyFTkXA-kX-S3SDGFCxcU7mxDhp7g"
+BOT_TOKEN = "7251591978:AAEL-ZAh6KzvbPHnR2ySyTXw2FdrOGiAV4c"
 
 def delete_webhook():
     # روش اول: استفاده از متد remove_webhook
