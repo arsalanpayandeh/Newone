@@ -8,7 +8,8 @@ import json
 from datetime import datetime
 
 # تنظیمات اولیه
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# اگر ENV ست نباشد، از مقادیر پیش‌فرض زیر استفاده می‌شود.
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7251591978:AAEL-ZAh6KzvbPHnR2ySyTXw2FdrOGiAV4c")
 
 # دایرکتوری اصلی پروژه برای مسیرهای پایدار فایل‌ها
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,8 +20,8 @@ def _safe_int(value, default=0):
     except Exception:
         return default
 
-ADMIN_ID = _safe_int(os.getenv("ADMIN_ID"))
-ADMIN_USERNAME = os.getenv("ADMIN_USERNAME")
+ADMIN_ID = _safe_int(os.getenv("ADMIN_ID"), 995380371)
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "@Azizollah_10")
 CARD_NUMBER = os.getenv("CARD_NUMBER")
 
 # تنظیمات اضافی برای بهبود تجربه کاربری
