@@ -1,2 +1,2 @@
 #!/bin/bash
-python AzizVPN_Bot.py 
+python -X utf8 vpn_bot.py

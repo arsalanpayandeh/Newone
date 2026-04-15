@@ -9,7 +9,7 @@ from datetime import datetime
 
 # تنظیمات اولیه
 # اگر ENV ست نباشد، از مقادیر پیش‌فرض زیر استفاده می‌شود.
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7251591978:AAEL-ZAh6KzvbPHnR2ySyTXw2FdrOGiAV4c")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8610416077:AAGJbj8xXvBCkIZNH_iBEn1mbZJyovh4474")
 
 # دایرکتوری اصلی پروژه برای مسیرهای پایدار فایل‌ها
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
