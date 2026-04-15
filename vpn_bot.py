@@ -22,7 +22,32 @@ def _safe_int(value, default=0):
 
 ADMIN_ID = _safe_int(os.getenv("ADMIN_ID"), 995380371)
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "@Azizollah_10")
-CARD_NUMBER = os.getenv("CARD_NUMBER")
+SECOND_ADMIN_ID = _safe_int(os.getenv("SECOND_ADMIN_ID"))
+SECOND_ADMIN_USERNAME = os.getenv("SECOND_ADMIN_USERNAME")
+CARD_NUMBER = os.getenv("CARD_NUMBER", "6219861868673491")
+
+ADMIN_IDS = [admin_id for admin_id in [ADMIN_ID, SECOND_ADMIN_ID] if admin_id > 0]
+
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
+
+def send_message_to_admins(text, **kwargs):
+    sent_messages = []
+    for admin_id in ADMIN_IDS:
+        try:
+            sent_messages.append(bot.send_message(admin_id, text, **kwargs))
+        except Exception as e:
+            print(f"❌ Error sending message to admin {admin_id}: {e}")
+    return sent_messages
+
+def forward_message_to_admins(from_chat_id, message_id):
+    forwarded_messages = []
+    for admin_id in ADMIN_IDS:
+        try:
+            forwarded_messages.append(bot.forward_message(admin_id, from_chat_id, message_id))
+        except Exception as e:
+            print(f"❌ Error forwarding message to admin {admin_id}: {e}")
+    return forwarded_messages
 
 # تنظیمات اضافی برای بهبود تجربه کاربری
 MAX_RETRIES = 3  # حداکثر تلاش برای ورود اطلاعات
@@ -188,7 +213,7 @@ def load_data():
 load_data()
 
 # تنظیم پلن‌های ثابت و ساختار موجودی کانفیگ پلنی
-FIXED_PLAN_LABELS = [f"{gb}GB" for gb in range(30, 151, 10)]
+FIXED_PLAN_LABELS = ["1GB", "2GB", "5GB"]
 
 def ensure_plan_pools():
     global configs_db
@@ -212,27 +237,15 @@ ensure_plan_pools()
 
 # تعریف قیمت‌ها (به تومان)
 prices = {
-    "30GB": {
-        "1month": 40000,
-
+    "1GB": {
+        "1month": 300,
     },
-    "50GB": {
-        "1month": 60000,
-
+    "2GB": {
+        "1month": 600,
     },
-    "70GB": {
-        "1month": 90000,
-
+    "5GB": {
+        "1month": 1500,
     },
-    "100GB": {
-        "1month": 120000,
-
-    },
-    "150GB": {
-        "1month": 180000,
-
-    },
-    
 }
 
 # دستور شروع
@@ -345,7 +358,7 @@ def main_menu_handler(message):
         show_representation_request(message)
         
     elif message.text == '⚙️ پنل مدیریت':
-        if user_id == ADMIN_ID:
+        if is_admin(user_id):
             show_admin_panel(message)
         else:
             bot.send_message(message.chat.id, "⛔️ شما دسترسی به این بخش را ندارید.")
@@ -436,15 +449,14 @@ def process_representation_request(message):
 # تابع بررسی وضعیت ادمین
 def check_admin_availability():
     """بررسی دسترسی ادمین"""
-    try:
-        # تلاش برای ارسال پیام تست به ادمین
-        test_msg = bot.send_message(ADMIN_ID, "🔍 تست دسترسی ادمین...")
-        if test_msg:
-            bot.delete_message(ADMIN_ID, test_msg.message_id)
-            return True
-    except Exception as e:
-        print(f"❌ Admin not available: {e}")
-        return False
+    for admin_id in ADMIN_IDS:
+        try:
+            test_msg = bot.send_message(admin_id, "🔍 تست دسترسی ادمین...")
+            if test_msg:
+                bot.delete_message(admin_id, test_msg.message_id)
+                return True
+        except Exception as e:
+            print(f"❌ Admin {admin_id} not available: {e}")
     return False
 
 # ارسال درخواست نمایندگی به ادمین
@@ -510,10 +522,10 @@ def send_representation_request_to_admin(message):
         reject_btn = types.InlineKeyboardButton("❌ رد درخواست", callback_data=f"rej_rep_{request_id}")
         markup.add(approve_btn, reject_btn)
         
-        # ارسال پیام به ادمین (بدون parse_mode)
-        sent = bot.send_message(ADMIN_ID, admin_msg, reply_markup=markup)
+        # ارسال پیام به ادمین‌ها (بدون parse_mode)
+        sent = send_message_to_admins(admin_msg, reply_markup=markup)
         
-        if sent:
+        if sent and len(sent) > 0:
             # تأیید به کاربر
             markup = create_main_menu()
             bot.send_message(message.chat.id, 
@@ -758,12 +770,12 @@ def process_support_message(message):
         reply_btn = types.InlineKeyboardButton("💬 پاسخ", callback_data=f"reply_{user_id}")
         markup.add(reply_btn)
         
-        # ارسال به ادمین با دکمه Reply
-        sent = bot.send_message(ADMIN_ID, support_msg, reply_markup=markup)
+        # ارسال به ادمین‌ها با دکمه Reply
+        sent_list = send_message_to_admins(support_msg, reply_markup=markup)
         
-        if sent:
+        if sent_list:
             # ذخیره پیام پشتیبانی برای پاسخ آسان
-            support_messages[sent.message_id] = {
+            support_messages[sent_list[0].message_id] = {
                 'user_id': user_id,
                 'message_text': clean_message,
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -812,6 +824,8 @@ def show_admin_panel(message):
                      "⚙️ پنل مدیریت:\n\n"
                      f"🆔 آیدی عددی ادمین: `{ADMIN_ID}`\n"
                      f"👤 یوزرنیم ادمین: {ADMIN_USERNAME}\n"
+                     f"🆔 آیدی عددی ادمین دوم: `{SECOND_ADMIN_ID if SECOND_ADMIN_ID > 0 else 'تنظیم نشده'}`\n"
+                     f"👤 یوزرنیم ادمین دوم: {SECOND_ADMIN_USERNAME if SECOND_ADMIN_USERNAME else 'تنظیم نشده'}\n"
                      f"💳 شماره کارت: `{CARD_NUMBER}`\n"
                      f"👥 تعداد کاربران: {len(users_db)}\n"
                      f"🚫 کاربران مسدود: {len(blocked_users)}\n"
@@ -1331,7 +1345,7 @@ def bot_statistics(message):
 
 @bot.message_handler(func=lambda message: message.text == '🔄 تست ارسال به ادمین')
 def test_admin_message(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     
     try:
@@ -1340,13 +1354,13 @@ def test_admin_message(message):
                   f"🕒 زمان: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n" \
                   f"✅ اگر این پیام را دریافت کرده‌اید، تنظیمات ادمین صحیح است."
         
-        sent_msg = bot.send_message(ADMIN_ID, test_msg)
-        
-        if sent_msg:
+        sent_messages = send_message_to_admins(test_msg)
+
+        if sent_messages:
             bot.send_message(message.chat.id, 
                             "✅ پیام تست با موفقیت ارسال شد.\n\n"
-                            f"پیام به آیدی {ADMIN_ID} ارسال شد.")
-            print(f"Test message sent to admin ID: {ADMIN_ID}")
+                            f"پیام به {len(sent_messages)} ادمین ارسال شد.")
+            print(f"Test message sent to admins count: {len(sent_messages)}")
         else:
             bot.send_message(message.chat.id, "❌ خطا در ارسال پیام تست.")
             
@@ -1653,7 +1667,7 @@ def process_payment_confirmation(message):
 
 🏦 اطلاعات کارت:
 • شماره: `{CARD_NUMBER}`
-• به نام: علی خلیلی ابکوه
+• به نام: خلیلی
 
 📸 پس از پرداخت:
 1. روی دکمه «📤 ارسال رسید پرداخت» کلیک کنید
@@ -1760,9 +1774,9 @@ def process_receipt(message):
     
     # ارسال رسید به ادمین
     try:
-        # فوروارد رسید به ادمین
-        forwarded = bot.forward_message(ADMIN_ID, message.chat.id, message.id)
-        print(f"Receipt forwarded to admin: {ADMIN_ID}, forward status: {forwarded != None}")
+        # فوروارد رسید به ادمین‌ها
+        forwarded_list = forward_message_to_admins(message.chat.id, message.id)
+        print(f"Receipt forwarded to admins count: {len(forwarded_list)}")
         
         # اطلاعات سفارش
         data_gb = user_data[user_id].get('data_gb', int(user_data[user_id]['data_plan'].replace('GB', '')))
@@ -1823,8 +1837,8 @@ def process_receipt(message):
         reject_btn = types.InlineKeyboardButton("❌ لغو", callback_data=f"reject_{order_id}")
         markup.add(approve_btn, reject_btn)
         
-        sent = bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown", reply_markup=markup)
-        print(f"Order info sent to admin: {ADMIN_ID}, send status: {sent != None}")
+        sent_list = send_message_to_admins(admin_msg, parse_mode="Markdown", reply_markup=markup)
+        print(f"Order info sent to admins count: {len(sent_list)}")
         
         # ارسال پیام تشکر به کاربر
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
@@ -2067,8 +2081,8 @@ def manual_config_command(message):
 # پردازش فایل کانفیگ ارسالی توسط ادمین
 def process_config_file(message, target_user_id, order_id=None):
     # بررسی دسترسی ادمین
-    if message.from_user.id != ADMIN_ID:
-        print(f"Unauthorized access to process_config_file: User ID {message.from_user.id}, Admin ID {ADMIN_ID}")
+    if not is_admin(message.from_user.id):
+        print(f"Unauthorized access to process_config_file: User ID {message.from_user.id}, Admin IDs {ADMIN_IDS}")
         return
     
     # بررسی نوع پیام
@@ -2080,30 +2094,30 @@ def process_config_file(message, target_user_id, order_id=None):
         # ارسال کانفیگ به کاربر
         if message.content_type == 'document':
             file_id = message.document.file_id
-            caption = "🔐 فایل کانفیگ فیلترشکن شما\n\nبا تشکر از خرید شما"
+            caption = "سرویس استار\n\n🔐 فایل کانفیگ شما آماده است.\nبا تشکر از خرید شما"
             
             # ارسال فایل به کاربر
             sent = bot.send_document(target_user_id, file_id, caption=caption)
             print(f"Config file sent to user {target_user_id}, status: {sent != None}")
             
             # تأیید ارسال به ادمین
-            bot.send_message(ADMIN_ID, f"✅ فایل کانفیگ با موفقیت به کاربر `{target_user_id}` ارسال شد.", parse_mode="Markdown")
+            bot.send_message(message.chat.id, f"✅ فایل کانفیگ با موفقیت به کاربر `{target_user_id}` ارسال شد.", parse_mode="Markdown")
             
         elif message.content_type == 'text':
             config_text = message.text
             
-            # ارسال متن کانفیگ به کاربر
+            # ارسال متن کانفیگ به کاربر (کدبلاک برای کپی آسان)
             sent = bot.send_message(target_user_id, 
-                             f"🔐 کانفیگ فیلترشکن شما:\n\n`{config_text}`\n\nبا تشکر از خرید شما",
+                             f"سرویس استار\n\n🔐 کانفیگ شما:\n\n```{config_text}```\n\nبا تشکر از خرید شما",
                              parse_mode="Markdown")
             print(f"Config text sent to user {target_user_id}, status: {sent != None}")
             
             # تأیید ارسال به ادمین
-            bot.send_message(ADMIN_ID, f"✅ متن کانفیگ با موفقیت به کاربر `{target_user_id}` ارسال شد.", parse_mode="Markdown")
+            bot.send_message(message.chat.id, f"✅ متن کانفیگ با موفقیت به کاربر `{target_user_id}` ارسال شد.", parse_mode="Markdown")
     
     except Exception as e:
         error_msg = f"❌ خطا در ارسال کانفیگ: {str(e)}"
-        bot.send_message(ADMIN_ID, error_msg)
+        bot.send_message(message.chat.id, error_msg)
         print(error_msg)
 
 # دستور برای تنظیم آیدی ادمین
@@ -3277,7 +3291,7 @@ def process_representation_discount(message, user_id, request_id):
 # پردازش دکمه‌های تأیید/لغو سفارش
 @bot.callback_query_handler(func=lambda call: call.data.startswith(('approve_', 'reject_')))
 def handle_order_approval(call):
-    if call.from_user.id != ADMIN_ID:
+    if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "⛔️ شما دسترسی به این عملیات را ندارید.")
         return
     
@@ -3292,52 +3306,26 @@ def handle_order_approval(call):
     
     if action == 'approve':
         try:
-            plan_gb = None
-            try:
-                plan_gb = int(str(order_info['data_plan']).split()[0])
-            except Exception:
-                pass
-            plan_key = f"{plan_gb}GB" if plan_gb else None
-            pool = configs_db.get('plans', {}).get(plan_key or '', [])
+            bot.edit_message_text(
+                f"✅ سفارش تأیید شد!\n\n"
+                f"🆔 آیدی کاربر: `{user_id}`\n"
+                f"👤 نام کاربری: `{order_info['username']}`\n"
+                f"📊 حجم: {order_info['data_plan']}\n"
+                f"⏱ مدت: {order_info['duration']}\n"
+                f"💰 مبلغ: {order_info['price']:,} تومان\n\n"
+                f"✍️ ارسال خودکار کانفیگ غیرفعال است.\n"
+                f"لطفا کانفیگ را دستی وارد و ارسال کنید.",
+                call.message.chat.id,
+                call.message.message_id,
+                parse_mode="Markdown"
+            )
 
-            if plan_key and pool:
-                entry = pool.pop(0)
-                save_data()
-
-                if entry.get('type') == 'document':
-                    file_id = entry.get('value')
-                    bot.send_document(user_id, file_id, caption="🔐 فایل کانفیگ شما آماده است. با تشکر از خرید شما")
-                else:
-                    cfg = entry.get('value', '')
-                    bot.send_message(user_id, f"🔐 کانفیگ شما:\n\n`{cfg}`", parse_mode="Markdown")
-
-                bot.edit_message_text(
-                    f"✅ سفارش تأیید شد و کانفیگ از موجودی پلن ارسال شد!\n\n"
-                    f"🆔 آیدی کاربر: `{user_id}`\n"
-                    f"👤 نام کاربری: `{order_info['username']}`\n"
-                    f"📊 حجم: {order_info['data_plan']}\n"
-                    f"⏱ مدت: {order_info['duration']}\n"
-                    f"💰 مبلغ: {order_info['price']:,} تومان\n\n"
-                    f"📦 پلن: {plan_key.replace('GB',' گیگ')}\n"
-                    f"📤 ارسال خودکار انجام شد.",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode="Markdown"
-                )
-            else:
-                bot.edit_message_text(
-                    f"✅ سفارش تأیید شد اما موجودی کانفیگ برای این پلن خالی است.\n\n"
-                    f"🆔 آیدی کاربر: `{user_id}`\n"
-                    f"👤 نام کاربری: `{order_info['username']}`\n"
-                    f"📊 حجم: {order_info['data_plan']}\n"
-                    f"⏱ مدت: {order_info['duration']}\n"
-                    f"💰 مبلغ: {order_info['price']:,} تومان\n\n"
-                    f"⚠️ لطفا کانفیگ را به صورت دستی ارسال کنید.",
-                    call.message.chat.id,
-                    call.message.message_id,
-                    parse_mode="Markdown"
-                )
-                bot.register_next_step_handler(call.message, lambda msg: process_config_file(msg, user_id, order_id))
+            prompt = bot.send_message(
+                call.message.chat.id,
+                f"سرویس استار\n\n🔐 لطفا کانفیگ کاربر `{user_id}` را به صورت متن یا فایل ارسال کنید:",
+                parse_mode="Markdown"
+            )
+            bot.register_next_step_handler(prompt, lambda msg: process_config_file(msg, user_id, order_id))
         except Exception as e:
             print(f"Error auto-sending config for user {user_id}: {e}")
     elif action == 'reject':
