@@ -314,7 +314,7 @@ def help_command(message):
 • در صورت مشکل با پشتیبانی تماس بگیرید
     """
     
-    markup = create_main_menu()
+    markup = create_main_menu(user_id)
     bot.send_message(message.chat.id, help_text, reply_markup=markup)
 
 # پاسخ به دکمه‌های اصلی
@@ -358,7 +358,7 @@ def main_menu_handler(message):
         show_representation_request(message)
         
     elif message.text == '⚙️ پنل مدیریت':
-        if is_admin(user_id):
+        if user_id == ADMIN_ID:
             show_admin_panel(message)
         else:
             bot.send_message(message.chat.id, "⛔️ شما دسترسی به این بخش را ندارید.")
@@ -375,7 +375,7 @@ def show_representation_request(message):
     
     # بررسی اینکه آیا کاربر قبلاً نماینده است
     if user_id in users_db and users_db[user_id].get('is_representative', False):
-        markup = create_main_menu()
+        markup = create_main_menu(user_id)
         bot.send_message(message.chat.id, 
                         "🏢 شما قبلاً نماینده تأیید شده‌اید!\n\n"
                         f"🎯 درصد تخفیف شما: {users_db[user_id].get('representative_discount', 0)}%\n"
@@ -423,7 +423,7 @@ def process_representation_request(message):
     # بررسی اعتبار جلسه
     session = get_user_session(user_id)
     if not session or session.get('step') != 'representation_request':
-        markup = create_main_menu()
+        markup = create_main_menu(user_id)
         bot.send_message(message.chat.id, 
                         "⏰ جلسه شما منقضی شده است یا در مرحله اشتباهی هستید.\n"
                         "لطفا دوباره از منوی اصلی درخواست نمایندگی را انتخاب کنید.",
@@ -432,7 +432,7 @@ def process_representation_request(message):
         return
     
     if message.text == '❌ خیر':
-        markup = create_main_menu()
+        markup = create_main_menu(user_id)
         bot.send_message(message.chat.id, 
                         "❌ درخواست نمایندگی لغو شد.\n"
                         "در صورت نیاز، می‌توانید دوباره درخواست دهید.",
@@ -465,7 +465,7 @@ def send_representation_request_to_admin(message):
     
     # بررسی دسترسی ادمین قبل از ارسال درخواست
     if not check_admin_availability():
-        markup = create_main_menu()
+        markup = create_main_menu(user_id)
         bot.send_message(message.chat.id, 
                         "❌ ادمین در دسترس نیست.\n"
                         "🔧 لطفا بعداً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.",
@@ -527,7 +527,7 @@ def send_representation_request_to_admin(message):
         
         if sent and len(sent) > 0:
             # تأیید به کاربر
-            markup = create_main_menu()
+            markup = create_main_menu(user_id)
             bot.send_message(message.chat.id, 
                            "✅ درخواست نمایندگی شما با موفقیت ارسال شد!\n\n"
                            "📞 ادمین درخواست شما را بررسی خواهد کرد.\n"
@@ -542,7 +542,7 @@ def send_representation_request_to_admin(message):
                 del representation_requests[request_id]
                 save_data()
             
-            markup = create_main_menu()
+            markup = create_main_menu(user_id)
             bot.send_message(message.chat.id, 
                            "❌ خطا در ارسال درخواست.\n"
                            "لطفا دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.",
@@ -556,7 +556,7 @@ def send_representation_request_to_admin(message):
             del representation_requests[request_id]
             save_data()
         
-        markup = create_main_menu()
+        markup = create_main_menu(user_id)
         bot.send_message(message.chat.id, 
                         "❌ خطا در ارسال درخواست نمایندگی.\n"
                         "🔧 ادمین در دسترس نیست یا مشکلی در تنظیمات وجود دارد.\n"
@@ -658,7 +658,7 @@ def show_user_account(message):
             account_info += f"• {i}. {data_plan_text} - {duration_text} - {price:,} تومان\n"
             account_info += f"  �� {order_time}\n\n"
     
-    markup = create_main_menu()
+    markup = create_main_menu(user_id)
     bot.send_message(message.chat.id, account_info, reply_markup=markup)
 
 # نمایش کانفیگ‌های کاربر
@@ -1381,7 +1381,7 @@ def show_data_plans(message):
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
     buttons = [types.KeyboardButton(label.replace('GB', ' گیگ')) for label in FIXED_PLAN_LABELS]
-    # 30 تا 150 گیگ
+    # پلن‌های فعال: 1، 2 و 5 گیگ
     for i in range(0, len(buttons), 3):
         markup.row(*buttons[i:i+3])
 
@@ -1390,10 +1390,11 @@ def show_data_plans(message):
     markup.add(back_btn, home_btn)
 
     plans_text = """
-📊 انتخاب پلن حجمی (همه 1 ماهه)
+🚀 سرویس استارلینگ پر سرعت
 
+📊 انتخاب پلن حجمی (همه 1 ماهه)
 یکی از حجم‌ها را انتخاب کنید:
-30، 40، 50، 60، 70، 80، 90، 100، 110، 120، 130، 140، 150 گیگ
+1، 2، 5 گیگ
     """
     bot.send_message(message.chat.id, plans_text, reply_markup=markup)
 
@@ -1548,8 +1549,8 @@ def show_final_price(message):
     # استخراج حجم داده (به گیگابایت)
     data_gb = user_data[user_id].get('data_gb', int(data_plan.replace('GB', '')))
     
-    # قیمت هر گیگابایت: 3000 تومان
-    price_per_gb = 3000
+    # قیمت هر گیگابایت: 600,000 تومان
+    price_per_gb = 600000
     
     # محاسبه قیمت پایه بر اساس حجم (بدون ضریب مدت زمان)
     base_price = data_gb * price_per_gb
@@ -1627,7 +1628,7 @@ def process_payment_confirmation(message):
         return
     
     if message.text == '❌ انصراف':
-        markup = create_main_menu()
+        markup = create_main_menu(user_id)
         bot.send_message(message.chat.id, 
                         "❌ سفارش شما لغو شد.\n"
                         "در صورت نیاز، می‌توانید دوباره خرید کنید.",
@@ -1703,7 +1704,7 @@ def process_receipt_option(message):
         return
     
     if message.text == '❌ انصراف':
-        markup = create_main_menu()
+        markup = create_main_menu(user_id)
         bot.send_message(message.chat.id, 
                         "❌ سفارش شما لغو شد.\n"
                         "در صورت نیاز، می‌توانید دوباره خرید کنید.",
@@ -2094,7 +2095,7 @@ def process_config_file(message, target_user_id, order_id=None):
         # ارسال کانفیگ به کاربر
         if message.content_type == 'document':
             file_id = message.document.file_id
-            caption = "سرویس استار\n\n🔐 فایل کانفیگ شما آماده است.\nبا تشکر از خرید شما"
+            caption = "سرویس استارلینگ پر سرعت\n\n🔐 فایل کانفیگ شما آماده است.\nبا تشکر از خرید شما"
             
             # ارسال فایل به کاربر
             sent = bot.send_document(target_user_id, file_id, caption=caption)
@@ -2108,7 +2109,7 @@ def process_config_file(message, target_user_id, order_id=None):
             
             # ارسال متن کانفیگ به کاربر (کدبلاک برای کپی آسان)
             sent = bot.send_message(target_user_id, 
-                             f"سرویس استار\n\n🔐 کانفیگ شما:\n\n```{config_text}```\n\nبا تشکر از خرید شما",
+                             f"سرویس استارلینگ پر سرعت\n\n🔐 کانفیگ شما:\n\n```{config_text}```\n\nبا تشکر از خرید شما",
                              parse_mode="Markdown")
             print(f"Config text sent to user {target_user_id}, status: {sent != None}")
             
@@ -2246,7 +2247,7 @@ def reply_support_command(message):
 {reply_text}
 
 ---
-💬 پشتیبانی AzizVPN
+💬 پشتیبانی سرویس استارلینگ پر سرعت
             """
             
             sent = bot.send_message(target_user_id, reply_msg)
@@ -2433,7 +2434,7 @@ def download_config_file(message):
             bot.send_document(
                 message.chat.id,
                 file,
-                caption=f"🔐 کانفیگ AzizVPN\n\n"
+                caption=f"🔐 کانفیگ سرویس استارلینگ پر سرعت\n\n"
                        f"👤 نام کاربری: {username}\n"
                        f"📊 حجم: {data_plan}\n"
                        f"📅 تاریخ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
@@ -2619,7 +2620,7 @@ def process_config_download(message):
         user_data[user_id] = {}
     user_data[user_id]['current_config'] = {
         'content': config_content,
-        'filename': f"AzizVPN_{username}_{data_plan}.txt",
+        'filename': f"StarlinkFast_{username}_{data_plan}.txt",
         'username': username,
         'data_plan': data_plan
     }
@@ -2706,7 +2707,7 @@ def generate_config_content(username, data_plan, duration):
     # تولید کانفیگ VLESS
     config_content = f"""🔐 کانفیگ فیلترشکن شما:
 
-vless://{server_config['uuid']}@{server_config['server']}:{server_config['port']}?type={server_config['type']}&path={server_config['path']}&host={server_config['host']}&mode=auto&security={server_config['security']}#AzizVPN-{username}
+vless://{server_config['uuid']}@{server_config['server']}:{server_config['port']}?type={server_config['type']}&path={server_config['path']}&host={server_config['host']}&mode=auto&security={server_config['security']}#StarlinkFast-{username}
 
 📋 اطلاعات کانفیگ:
 👤 نام کاربری: {username}
@@ -2753,7 +2754,7 @@ def generate_pure_vless_config(username, data_plan, duration):
     }
     
     # تولید کانفیگ VLESS خالص
-    pure_config = f"vless://{server_config['uuid']}@{server_config['server']}:{server_config['port']}?type={server_config['type']}&path={server_config['path']}&host={server_config['host']}&mode=auto&security={server_config['security']}#AzizVPN-{username}"
+    pure_config = f"vless://{server_config['uuid']}@{server_config['server']}:{server_config['port']}?type={server_config['type']}&path={server_config['path']}&host={server_config['host']}&mode=auto&security={server_config['security']}#StarlinkFast-{username}"
     
     return pure_config
 
@@ -2944,7 +2945,7 @@ def is_session_valid(user_id):
     return True
 
 # تابع‌های کمکی برای بهبود تجربه کاربری
-def create_main_menu():
+def create_main_menu(user_id=None):
     """ایجاد منوی اصلی با طراحی بهتر"""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     buy_btn = types.KeyboardButton('🛒 خرید فیلترشکن')
@@ -2955,7 +2956,7 @@ def create_main_menu():
     admin_btn = types.KeyboardButton('⚙️ پنل مدیریت')
     
     markup.add(buy_btn, account_btn, configs_btn, support_btn, representation_btn)
-    if ADMIN_ID:  # فقط برای ادمین نمایش داده شود
+    if user_id == ADMIN_ID:  # فقط برای ادمین اصلی نمایش داده شود
         markup.add(admin_btn)
     
     return markup
@@ -2983,7 +2984,7 @@ def send_welcome_message(chat_id, user_name):
 💡 نکته: تمام پرداخت‌ها امن و محافظت شده هستند.
     """
     
-    markup = create_main_menu()
+    markup = create_main_menu(chat_id)
     bot.send_message(chat_id, welcome_text, reply_markup=markup)
 
 # مدیریت خطاهای عمومی
@@ -3019,7 +3020,7 @@ def handle_all_messages(message):
         return
     
     # پیام‌های غیرمنتظره
-    markup = create_main_menu()
+    markup = create_main_menu(user_id)
     bot.send_message(message.chat.id, 
                     "🤔 متوجه پیام شما نشدم.\n"
                     "لطفا از منوی زیر انتخاب کنید:",
@@ -3148,7 +3149,7 @@ def process_admin_reply(message, target_user_id):
 {reply_text}
 
 ---
-💬 پشتیبانی AzizVPN
+💬 پشتیبانی سرویس استارلینگ پر سرعت
         """
         
         sent = bot.send_message(target_user_id, admin_reply)
@@ -3322,7 +3323,7 @@ def handle_order_approval(call):
 
             prompt = bot.send_message(
                 call.message.chat.id,
-                f"سرویس استار\n\n🔐 لطفا کانفیگ کاربر `{user_id}` را به صورت متن یا فایل ارسال کنید:",
+                f"سرویس استارلینگ پر سرعت\n\n🔐 لطفا کانفیگ کاربر `{user_id}` را به صورت متن یا فایل ارسال کنید:",
                 parse_mode="Markdown"
             )
             bot.register_next_step_handler(prompt, lambda msg: process_config_file(msg, user_id, order_id))
