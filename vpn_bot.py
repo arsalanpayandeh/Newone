@@ -382,7 +382,7 @@ def main_menu_handler(message):
         show_representation_request(message)
         
     elif message.text == '⚙️ پنل مدیریت':
-        if user_id == ADMIN_ID:
+        if is_admin(user_id):
             show_admin_panel(message)
         else:
             bot.send_message(message.chat.id, "⛔️ شما دسترسی به این بخش را ندارید.")
@@ -590,7 +590,7 @@ def send_representation_request_to_admin(message):
 # پاسخ به دکمه‌های پنل مدیریت
 @bot.message_handler(func=lambda message: message.text in ['👥 مدیریت کاربران', '📊 آمار ربات', '🔐 مدیریت کانفیگ‌ها', '📢 پیام همگانی', '💰 مدیریت تخفیف', '🚫 مدیریت مسدودیت', '📞 پیام‌های پشتیبانی', '🔄 تست ارسال به ادمین'])
 def admin_panel_handler(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     
     if message.text == '👥 مدیریت کاربران':
@@ -974,7 +974,7 @@ def list_users(message):
 # مدیریت کانفیگ‌ها
 @bot.message_handler(func=lambda message: message.text == '🔐 مدیریت کانفیگ‌ها')
 def manage_configs(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     btn1 = types.KeyboardButton('➕ افزودن کانفیگ به پلن')
@@ -992,7 +992,7 @@ def manage_configs(message):
 
 @bot.message_handler(func=lambda message: message.text in ['➕ افزودن کانفیگ به پلن', '📋 لیست موجودی پلن‌ها', '🗑️ حذف کانفیگ از پلن'])
 def manage_configs_actions(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
 
     if message.text == '➕ افزودن کانفیگ به پلن':
@@ -1038,7 +1038,7 @@ def _fa_to_plan_key(text):
 # افزودن کانفیگ به پلن انتخاب شده
 
 def _pick_plan_for_add(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     if message.text == '🔙 بازگشت به پنل':
         show_admin_panel(message)
@@ -1057,7 +1057,7 @@ def _pick_plan_for_add(message):
 
 
 def _receive_config_for_plan(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     if message.text == '🔙 بازگشت به پنل':
         show_admin_panel(message)
@@ -1090,7 +1090,7 @@ def _receive_config_for_plan(message):
 # حذف کانفیگ از پلن انتخاب شده
 
 def _pick_plan_for_delete(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     if message.text == '🔙 بازگشت به پنل':
         show_admin_panel(message)
@@ -1117,7 +1117,7 @@ def _pick_plan_for_delete(message):
 
 
 def _delete_config_from_plan(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     if message.text == '🔙 بازگشت به پنل':
         show_admin_panel(message)
@@ -1143,9 +1143,9 @@ def _delete_config_from_plan(message):
     manage_configs(message)
 
 # آپلود کانفیگ
-@bot.message_handler(content_types=['document'], func=lambda message: message.from_user.id == ADMIN_ID)
+@bot.message_handler(content_types=['document'], func=lambda message: is_admin(message.from_user.id))
 def upload_config(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     
     file_id = message.document.file_id
@@ -3072,7 +3072,7 @@ def create_main_menu(user_id=None):
     admin_btn = types.KeyboardButton('⚙️ پنل مدیریت')
     
     markup.add(buy_btn, account_btn, configs_btn, wallet_btn, support_btn, representation_btn)
-    if user_id == ADMIN_ID:  # فقط برای ادمین اصلی نمایش داده شود
+    if is_admin(user_id):  # برای همه ادمین‌ها نمایش داده شود
         markup.add(admin_btn)
     
     return markup
