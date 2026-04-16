@@ -110,8 +110,8 @@ def _atomic_write_json(file_path: str, data_obj):
     except Exception as e:
         print(f"❌ خطا در نوشتن اتمیک فایل {file_path}: {e}")
 
-# ایجاد نمونه ربات
-bot = telebot.TeleBot(BOT_TOKEN)
+# ایجاد نمونه ربات (threaded=False تا next_step و dispatch پیام‌ها قابل پیش‌بینی باشد)
+bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 
 # حافظه موقت برای ذخیره اطلاعات سفارش
 user_data = {}
@@ -1721,6 +1721,8 @@ def ask_username(message):
     """
     
     bot.send_message(message.chat.id, username_text, reply_markup=markup)
+    bot.register_next_step_handler(message, process_username)
+
 
 # پردازش نام کاربری
 def process_username(message):
@@ -1742,6 +1744,7 @@ def process_username(message):
         return
     
     username = message.text.strip()
+    user_data.setdefault(user_id, {})
     
     # اعتبارسنجی نام کاربری
     import re
@@ -1784,6 +1787,24 @@ def process_username(message):
     
     # نمایش قیمت نهایی
     show_final_price(message)
+
+
+def _entering_username_filter(message):
+    if not getattr(message, 'text', None):
+        return False
+    uid = message.from_user.id
+    if uid in blocked_users:
+        return False
+    if not is_session_valid(uid):
+        return False
+    s = get_user_session(uid)
+    return bool(s and s.get('step') == 'entering_username')
+
+
+@bot.message_handler(content_types=['text'], func=_entering_username_filter)
+def route_entering_username(message):
+    process_username(message)
+
 
 # محاسبه و نمایش قیمت نهایی
 def show_final_price(message):
@@ -3264,23 +3285,6 @@ def send_welcome_message(chat_id, user_name):
     bot.send_message(chat_id, welcome_text, reply_markup=markup)
 
 
-def _entering_username_filter(message):
-    if not getattr(message, 'text', None):
-        return False
-    uid = message.from_user.id
-    if uid in blocked_users:
-        return False
-    if not is_session_valid(uid):
-        return False
-    s = get_user_session(uid)
-    return bool(s and s.get('step') == 'entering_username')
-
-
-@bot.message_handler(content_types=['text'], func=_entering_username_filter)
-def route_entering_username(message):
-    process_username(message)
-
-
 # مدیریت خطاهای عمومی
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
@@ -3293,11 +3297,9 @@ def handle_all_messages(message):
         return
     
     session = get_user_session(user_id)
-    if session and session.get('step') == 'entering_username':
-        bot.send_message(
-            message.chat.id,
-            "لطفا نام کاربری را فقط به صورت متن انگلیسی بفرستید.",
-        )
+    # اگر به هر دلیلی هندلر اختصاصی نام کاربری اجرا نشد، اینجا همان منطق را اجرا کن
+    if session and session.get('step') == 'entering_username' and getattr(message, 'text', None):
+        process_username(message)
         return
     if session and session.get('step') == 'uploading_receipt':
         bot.send_message(
