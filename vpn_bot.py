@@ -232,8 +232,43 @@ def load_data():
 # بارگذاری داده‌ها در شروع ربات
 load_data()
 
-# تنظیم پلن‌های ثابت و ساختار موجودی کانفیگ پلنی
-FIXED_PLAN_LABELS = ["1GB", "2GB", "5GB"]
+# تنظیم سرویس‌ها و پلن‌ها
+SERVICE_CATALOG = {
+    "STAR": {
+        "title": "استار",
+        "price_per_gb": 600000,
+        "sizes": [1, 5],
+    },
+    "TUNNEL": {
+        "title": "تانل",
+        "price_per_gb": 350000,
+        "sizes": [1, 2, 3, 4, 5],
+    }
+}
+
+PLAN_KEYS = [
+    f"{service}_{size}GB"
+    for service, cfg in SERVICE_CATALOG.items()
+    for size in cfg["sizes"]
+]
+FIXED_PLAN_LABELS = PLAN_KEYS  # سازگاری با بخش مدیریت کانفیگ
+
+def plan_key_to_title(plan_key):
+    try:
+        service, gb = plan_key.split("_", 1)
+        size = int(gb.replace("GB", ""))
+        return f"{SERVICE_CATALOG[service]['title']} {size} گیگ"
+    except Exception:
+        return plan_key
+
+def parse_plan_choice(text):
+    normalized = str(text).strip().replace("  ", " ")
+    for service, cfg in SERVICE_CATALOG.items():
+        title = cfg["title"]
+        for size in cfg["sizes"]:
+            if normalized == f"{title} {size} گیگ":
+                return f"{service}_{size}GB", size, service
+    return None, None, None
 
 def ensure_plan_pools():
     global configs_db
@@ -242,7 +277,7 @@ def ensure_plan_pools():
             configs_db = {}
         if 'plans' not in configs_db or not isinstance(configs_db['plans'], dict):
             configs_db['plans'] = {}
-        for plan_key in FIXED_PLAN_LABELS:
+        for plan_key in PLAN_KEYS:
             configs_db['plans'].setdefault(plan_key, [])
     finally:
         # فقط ذخیره اگر ساختار تغییر کرد تا از overwrite غیرضروری جلوگیری شود
@@ -256,17 +291,7 @@ ensure_plan_pools()
 ## حذف کانفیگ‌های پیش‌فرض از کد بنا به درخواست کاربر
 
 # تعریف قیمت‌ها (به تومان)
-prices = {
-    "1GB": {
-        "1month": 300,
-    },
-    "2GB": {
-        "1month": 600,
-    },
-    "5GB": {
-        "1month": 1500,
-    },
-}
+prices = {plan_key: {"1month": int(plan_key.split("_")[1].replace("GB", "")) * SERVICE_CATALOG[plan_key.split("_")[0]]["price_per_gb"]} for plan_key in PLAN_KEYS}
 
 # دستور شروع
 @bot.message_handler(commands=['start'])
@@ -672,7 +697,9 @@ def show_user_account(message):
         for i, order in enumerate(orders[-3:], 1):  # نمایش 3 سفارش آخر
             data_plan = order.get('data_plan', '')
             # تبدیل فرمت داده
-            if 'GB' in data_plan:
+            if '_' in data_plan:
+                data_plan_text = plan_key_to_title(data_plan)
+            elif 'GB' in data_plan:
                 data_plan_text = data_plan.replace('GB', ' گیگابایت')
             else:
                 data_plan_text = data_plan
@@ -730,8 +757,9 @@ def show_user_configs(message):
         order_time = order.get('order_time', 'نامشخص')
         
         # تبدیل نام‌های انگلیسی به فارسی
-        if data_plan.endswith('GB'):
-            # برای حجم‌های دلخواه (مثل 45GB, 67GB, etc.)
+        if '_' in data_plan:
+            data_plan_fa = plan_key_to_title(data_plan)
+        elif data_plan.endswith('GB'):
             data_plan_fa = f"{data_plan.replace('GB', '')} گیگابایت"
         else:
             # برای سایر موارد
@@ -1008,7 +1036,7 @@ def manage_configs_actions(message):
         # انتخاب پلن
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
         for i in range(0, len(FIXED_PLAN_LABELS), 3):
-            labels_fa = [types.KeyboardButton(label.replace('GB', ' گیگ')) for label in FIXED_PLAN_LABELS[i:i+3]]
+            labels_fa = [types.KeyboardButton(plan_key_to_title(label)) for label in FIXED_PLAN_LABELS[i:i+3]]
             markup.row(*labels_fa)
         back = types.KeyboardButton('🔙 بازگشت به پنل')
         markup.add(back)
@@ -1018,7 +1046,7 @@ def manage_configs_actions(message):
     elif message.text == '📋 لیست موجودی پلن‌ها':
         inventories = []
         for label in FIXED_PLAN_LABELS:
-            inventories.append(f"{label.replace('GB',' گیگ')}: {len(configs_db.get('plans', {}).get(label, []))}")
+            inventories.append(f"{plan_key_to_title(label)}: {len(configs_db.get('plans', {}).get(label, []))}")
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         back = types.KeyboardButton('🔙 بازگشت به پنل')
         markup.add(back)
@@ -1028,7 +1056,7 @@ def manage_configs_actions(message):
         # انتخاب پلن
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
         for i in range(0, len(FIXED_PLAN_LABELS), 3):
-            labels_fa = [types.KeyboardButton(label.replace('GB', ' گیگ')) for label in FIXED_PLAN_LABELS[i:i+3]]
+            labels_fa = [types.KeyboardButton(plan_key_to_title(label)) for label in FIXED_PLAN_LABELS[i:i+3]]
             markup.row(*labels_fa)
         back = types.KeyboardButton('🔙 بازگشت به پنل')
         markup.add(back)
@@ -1037,12 +1065,8 @@ def manage_configs_actions(message):
 
 
 def _fa_to_plan_key(text):
-    try:
-        gb = int(text.replace('گیگ', '').strip())
-        key = f"{gb}GB"
-        return key if key in FIXED_PLAN_LABELS else None
-    except Exception:
-        return None
+    key, _, _ = parse_plan_choice(text)
+    return key
 
 # افزودن کانفیگ به پلن انتخاب شده
 
@@ -1061,7 +1085,7 @@ def _pick_plan_for_add(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
     back = types.KeyboardButton('🔙 بازگشت به پنل')
     markup.add(back)
-    bot.send_message(message.chat.id, f"پلن {plan_key.replace('GB',' گیگ')} انتخاب شد. اکنون کانفیگ را به صورت فایل یا متن ارسال کنید.", reply_markup=markup)
+    bot.send_message(message.chat.id, f"پلن {plan_key_to_title(plan_key)} انتخاب شد. اکنون کانفیگ را به صورت فایل یا متن ارسال کنید.", reply_markup=markup)
     bot.register_next_step_handler(message, _receive_config_for_plan)
 
 
@@ -1092,7 +1116,7 @@ def _receive_config_for_plan(message):
 
     configs_db['plans'].setdefault(plan_key, []).append(entry)
     save_data()
-    bot.send_message(message.chat.id, f"✅ کانفیگ برای پلن {plan_key.replace('GB',' گیگ')} ذخیره شد. می‌توانید مجدد ارسال کنید یا بازگشت کنید.")
+    bot.send_message(message.chat.id, f"✅ کانفیگ برای پلن {plan_key_to_title(plan_key)} ذخیره شد. می‌توانید مجدد ارسال کنید یا بازگشت کنید.")
     bot.register_next_step_handler(message, _receive_config_for_plan)
 
 
@@ -1480,9 +1504,8 @@ def show_data_plans(message):
 
     update_user_session(user_id, 'selecting_data_plan')
 
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    buttons = [types.KeyboardButton(label.replace('GB', ' گیگ')) for label in FIXED_PLAN_LABELS]
-    # پلن‌های فعال: 1، 2 و 5 گیگ
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    buttons = [types.KeyboardButton(plan_key_to_title(k)) for k in PLAN_KEYS]
     for i in range(0, len(buttons), 3):
         markup.row(*buttons[i:i+3])
 
@@ -1493,9 +1516,12 @@ def show_data_plans(message):
     plans_text = """
 🚀 سرویس استارلینگ پر سرعت
 
-📊 انتخاب پلن حجمی (همه 1 ماهه)
-یکی از حجم‌ها را انتخاب کنید:
-1، 2، 5 گیگ
+📊 انتخاب پلن سرویس (همه 1 ماهه)
+
+⭐ استار: 1 و 5 گیگ (هر گیگ 600,000 تومان)
+🛡 تانل: 1 تا 5 گیگ (هر گیگ 350,000 تومان)
+
+یکی از پلن‌ها را انتخاب کنید:
     """
     bot.send_message(message.chat.id, plans_text, reply_markup=markup)
 
@@ -1508,13 +1534,19 @@ def process_fixed_plan_selection(message):
         return
 
     label_fa = message.text.strip()
-    try:
-        gb_value = int(label_fa.replace('گیگ', '').strip())
-        plan_key = f"{gb_value}GB"
-        if plan_key not in FIXED_PLAN_LABELS:
-            raise ValueError()
-    except Exception:
+    plan_key, gb_value, service_type = parse_plan_choice(label_fa)
+    if not plan_key:
         bot.send_message(message.chat.id, "❌ لطفا یکی از گزینه‌های موجود را انتخاب کنید.")
+        show_data_plans(message)
+        return
+
+    # اگر موجودی کانفیگ این پلن صفر باشد، از همینجا اجازه ادامه نده
+    plan_stock = len(configs_db.get('plans', {}).get(plan_key, []))
+    if plan_stock <= 0:
+        bot.send_message(
+            message.chat.id,
+            f"❌ موجودی پلن {gb_value} گیگ تمام شده است.\nلطفا یک پلن دیگر انتخاب کنید."
+        )
         show_data_plans(message)
         return
 
@@ -1522,6 +1554,7 @@ def process_fixed_plan_selection(message):
         user_data[user_id] = {}
     user_data[user_id]['data_plan'] = plan_key
     user_data[user_id]['data_gb'] = gb_value
+    user_data[user_id]['service_type'] = service_type
 
     update_user_session(user_id, 'data_selected', {'data_plan': plan_key, 'data_gb': gb_value})
 
@@ -1529,6 +1562,26 @@ def process_fixed_plan_selection(message):
     user_data[user_id]['duration'] = '1month'
     update_user_session(user_id, 'duration_selected', {'duration': '1month'})
     ask_username(message)
+
+def show_payment_methods(message, user_id):
+    """نمایش منوی روش‌های پرداخت"""
+    price = user_data[user_id]['price']
+    payment_info = f"""💳 انتخاب روش پرداخت
+
+💰 مبلغ سفارش: {price:,} تومان
+
+یکی از روش‌ها را انتخاب کنید:
+• کارت به کارت
+• کیف پول"""
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    card_btn = types.KeyboardButton('💳 پرداخت کارت به کارت')
+    wallet_btn = types.KeyboardButton('👛 پرداخت از کیف پول')
+    cancel_btn = types.KeyboardButton('❌ انصراف')
+    back_btn = types.KeyboardButton('🔙 بازگشت')
+    home_btn = types.KeyboardButton('🏠 منوی اصلی')
+    markup.add(card_btn, wallet_btn, cancel_btn, back_btn, home_btn)
+    bot.send_message(message.chat.id, payment_info, reply_markup=markup)
 
 # درخواست نام کاربری
 def ask_username(message):
@@ -1576,7 +1629,7 @@ def process_username(message):
     # بررسی دکمه‌های بازگشت
     if message.text in ['🔙 بازگشت', '🏠 منوی اصلی']:
         if message.text == '🔙 بازگشت':
-            show_duration_plans(message)
+            show_data_plans(message)
         else:
             start(message)
         return
@@ -1650,8 +1703,8 @@ def show_final_price(message):
     # استخراج حجم داده (به گیگابایت)
     data_gb = user_data[user_id].get('data_gb', int(data_plan.replace('GB', '')))
     
-    # قیمت هر گیگابایت: 600,000 تومان
-    price_per_gb = 600000
+    service_type = user_data[user_id].get('service_type', str(data_plan).split('_')[0] if '_' in str(data_plan) else 'STAR')
+    price_per_gb = SERVICE_CATALOG.get(service_type, SERVICE_CATALOG['STAR'])['price_per_gb']
     
     # محاسبه قیمت پایه بر اساس حجم (بدون ضریب مدت زمان)
     base_price = data_gb * price_per_gb
@@ -1680,7 +1733,8 @@ def show_final_price(message):
     update_user_session(user_id, 'price_shown')
     
     # تبدیل به متن فارسی
-    data_plan_text = f"{data_gb} گیگابایت"
+    service_title = SERVICE_CATALOG.get(service_type, SERVICE_CATALOG['STAR'])['title']
+    data_plan_text = f"{service_title} - {data_gb} گیگابایت"
     duration_text = "1 ماهه"
     
     # نمایش اطلاعات سفارش
@@ -1745,27 +1799,7 @@ def process_payment_confirmation(message):
     
     update_user_session(user_id, 'payment_confirmed')
     
-    # نمایش روش‌های پرداخت
-    price = user_data[user_id]['price']
-
-    payment_info = f"""💳 انتخاب روش پرداخت
-
-💰 مبلغ سفارش: {price:,} تومان
-
-یکی از روش‌ها را انتخاب کنید:
-• کارت به کارت
-• کیف پول"""
-
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    card_btn = types.KeyboardButton('💳 پرداخت کارت به کارت')
-    wallet_btn = types.KeyboardButton('👛 پرداخت از کیف پول')
-    cancel_btn = types.KeyboardButton('❌ انصراف')
-    back_btn = types.KeyboardButton('🔙 بازگشت')
-    home_btn = types.KeyboardButton('🏠 منوی اصلی')
-    
-    markup.add(card_btn, wallet_btn, cancel_btn, back_btn, home_btn)
-    
-    bot.send_message(message.chat.id, payment_info, reply_markup=markup)
+    show_payment_methods(message, user_id)
 
 @bot.message_handler(func=lambda message: message.text in ['💳 پرداخت کارت به کارت', '👛 پرداخت از کیف پول'])
 def process_payment_method(message):
@@ -1773,6 +1807,13 @@ def process_payment_method(message):
     if user_id not in user_data or 'price' not in user_data[user_id]:
         bot.send_message(message.chat.id, "❌ اطلاعات سفارش ناقص است.")
         start(message)
+        return
+
+    plan_key = user_data[user_id]['data_plan']
+    # چک موجودی پلن قبل از ورود به پرداخت
+    if len(configs_db.get('plans', {}).get(plan_key, [])) <= 0:
+        bot.send_message(message.chat.id, "❌ موجودی این پلن تمام شده است. لطفا پلن دیگری انتخاب کنید.")
+        show_data_plans(message)
         return
 
     if message.text == '👛 پرداخت از کیف پول':
@@ -1783,7 +1824,6 @@ def process_payment_method(message):
             show_wallet_menu(message)
             return
 
-        plan_key = user_data[user_id]['data_plan']
         ok, reason = deliver_config_from_pool(user_id, plan_key)
         if not ok:
             bot.send_message(message.chat.id, f"❌ {reason}")
@@ -1791,6 +1831,17 @@ def process_payment_method(message):
             return
 
         users_db[user_id]['wallet_balance'] = balance - price
+        order_record = {
+            'data_plan': user_data[user_id]['data_plan'],
+            'duration': user_data[user_id].get('duration', '1month'),
+            'username': user_data[user_id]['username'],
+            'price': price,
+            'order_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'receipt_id': None,
+            'payment_method': 'wallet'
+        }
+        users_db[user_id].setdefault('orders', []).append(order_record)
+        users_db[user_id]['total_spent'] = users_db[user_id].get('total_spent', 0) + price
         save_data()
         bot.send_message(message.chat.id, f"✅ پرداخت با کیف پول انجام شد.\n💰 موجودی جدید: {users_db[user_id]['wallet_balance']:,} تومان")
         return
@@ -1836,7 +1887,7 @@ def process_receipt_option(message):
         return
     
     elif message.text == '🔙 بازگشت':
-        show_final_price(message)
+        show_payment_methods(message, user_id)
         return
     
     elif message.text == '🏠 منوی اصلی':
