@@ -1525,7 +1525,21 @@ def show_data_plans(message):
     """
     bot.send_message(message.chat.id, plans_text, reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text and message.text.strip().endswith('گیگ'))
+
+def _fixed_plan_select_filter(message):
+    """فقط وقتی کاربر واقعاً در صفحهٔ انتخاب پلن است (نه مثلاً در ورود نام کاربری)."""
+    if not message.text or not message.text.strip().endswith('گیگ'):
+        return False
+    uid = message.from_user.id
+    if uid in blocked_users:
+        return False
+    if not is_session_valid(uid):
+        return False
+    s = get_user_session(uid)
+    return bool(s and s.get('step') == 'selecting_data_plan')
+
+
+@bot.message_handler(func=_fixed_plan_select_filter)
 def process_fixed_plan_selection(message):
     user_id = message.from_user.id
     if not is_session_valid(user_id):
@@ -1583,6 +1597,79 @@ def show_payment_methods(message, user_id):
     markup.add(card_btn, wallet_btn, cancel_btn, back_btn, home_btn)
     bot.send_message(message.chat.id, payment_info, reply_markup=markup)
 
+
+def send_card_payment_instructions(message, user_id):
+    """نمایش مجدد صفحهٔ پرداخت کارت به کارت (مبلغ، شماره کارت، دکمهٔ ارسال رسید)."""
+    price = user_data[user_id]['price']
+    data_gb = user_data[user_id].get('data_gb', int(user_data[user_id]['data_plan'].replace('GB', '')))
+    username = user_data[user_id]['username']
+    payment_info = f"""💳 اطلاعات پرداخت کارت به کارت
+
+📋 خلاصه سفارش:
+• نام کاربری: `{username}`
+• حجم داده: {data_gb} گیگابایت
+• مبلغ: {price:,} تومان
+
+🏦 اطلاعات کارت:
+• شماره: `{CARD_NUMBER}`
+• به نام: خلیلی
+
+📸 سپس روی «📤 ارسال رسید پرداخت» بزنید."""
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(
+        types.KeyboardButton('📤 ارسال رسید پرداخت'),
+        types.KeyboardButton('❌ انصراف'),
+        types.KeyboardButton('🔙 بازگشت'),
+        types.KeyboardButton('🏠 منوی اصلی'),
+    )
+    bot.send_message(message.chat.id, payment_info, parse_mode="Markdown", reply_markup=markup)
+
+
+def _purchase_back_button_filter(message):
+    if not message.text or message.text != '🔙 بازگشت':
+        return False
+    uid = message.from_user.id
+    if uid in blocked_users:
+        return False
+    if not is_session_valid(uid):
+        return False
+    step = (get_user_session(uid) or {}).get('step')
+    return step in (
+        'entering_username',
+        'price_shown',
+        'payment_confirmed',
+        'card_receipt_pending',
+        'uploading_receipt',
+    )
+
+
+@bot.message_handler(func=_purchase_back_button_filter)
+def purchase_flow_back(message):
+    """بازگشت مرحله‌به‌مرحله در مسیر خرید (بدون تداخل با سایر بخش‌های ربات)."""
+    user_id = message.from_user.id
+    step = get_user_session(user_id).get('step')
+
+    if step == 'entering_username':
+        bot.clear_step_handler(message)
+        show_data_plans(message)
+        return
+    if step == 'price_shown':
+        bot.clear_step_handler(message)
+        ask_username(message)
+        return
+    if step == 'payment_confirmed':
+        show_final_price(message)
+        return
+    if step == 'card_receipt_pending':
+        show_payment_methods(message, user_id)
+        return
+    if step == 'uploading_receipt':
+        bot.clear_step_handler(message)
+        update_user_session(user_id, 'card_receipt_pending')
+        send_card_payment_instructions(message, user_id)
+        return
+
+
 # درخواست نام کاربری
 def ask_username(message):
     """درخواست نام کاربری با طراحی بهتر"""
@@ -1613,7 +1700,6 @@ def ask_username(message):
     """
     
     bot.send_message(message.chat.id, username_text, reply_markup=markup)
-    bot.register_next_step_handler(message, process_username)
 
 # پردازش نام کاربری
 def process_username(message):
@@ -1669,7 +1755,6 @@ def process_username(message):
         
         markup = create_back_button()
         bot.send_message(message.chat.id, error_text, reply_markup=markup)
-        bot.register_next_step_handler(message, process_username)
         return
     
     # ذخیره نام کاربری
@@ -1847,27 +1932,11 @@ def process_payment_method(message):
         return
 
     # مسیر کارت به کارت
-    price = user_data[user_id]['price']
-    data_gb = user_data[user_id].get('data_gb', int(user_data[user_id]['data_plan'].replace('GB', '')))
-    username = user_data[user_id]['username']
-    payment_info = f"""💳 اطلاعات پرداخت کارت به کارت
-
-📋 خلاصه سفارش:
-• نام کاربری: `{username}`
-• حجم داده: {data_gb} گیگابایت
-• مبلغ: {price:,} تومان
-
-🏦 اطلاعات کارت:
-• شماره: `{CARD_NUMBER}`
-• به نام: خلیلی
-
-📸 سپس روی «📤 ارسال رسید پرداخت» بزنید."""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(types.KeyboardButton('📤 ارسال رسید پرداخت'), types.KeyboardButton('❌ انصراف'), types.KeyboardButton('🔙 بازگشت'), types.KeyboardButton('🏠 منوی اصلی'))
-    bot.send_message(message.chat.id, payment_info, parse_mode="Markdown", reply_markup=markup)
+    update_user_session(user_id, 'card_receipt_pending')
+    send_card_payment_instructions(message, user_id)
 
 # پردازش انتخاب ارسال رسید
-@bot.message_handler(func=lambda message: message.text in ['📤 ارسال رسید پرداخت', '❌ انصراف', '🔙 بازگشت', '🏠 منوی اصلی'])
+@bot.message_handler(func=lambda message: message.text in ['📤 ارسال رسید پرداخت', '❌ انصراف', '🏠 منوی اصلی'])
 def process_receipt_option(message):
     user_id = message.from_user.id
     
@@ -1884,10 +1953,6 @@ def process_receipt_option(message):
                         "در صورت نیاز، می‌توانید دوباره خرید کنید.",
                         reply_markup=markup)
         clear_user_session(user_id)
-        return
-    
-    elif message.text == '🔙 بازگشت':
-        show_payment_methods(message, user_id)
         return
     
     elif message.text == '🏠 منوی اصلی':
@@ -1920,7 +1985,11 @@ def process_receipt_option(message):
     bot.register_next_step_handler(message, process_receipt)
 
 # پردازش رسید پرداخت
-@bot.message_handler(content_types=['photo'])
+@bot.message_handler(
+    content_types=['photo'],
+    func=lambda m: is_session_valid(m.from_user.id)
+    and (get_user_session(m.from_user.id) or {}).get('step') == 'uploading_receipt',
+)
 def process_receipt(message):
     if hasattr(message, 'text') and message.text == '❌ انصراف':
         bot.send_message(message.chat.id, "❌ سفارش شما لغو شد.")
@@ -3163,6 +3232,24 @@ def send_welcome_message(chat_id, user_name):
     markup = create_main_menu(chat_id)
     bot.send_message(chat_id, welcome_text, reply_markup=markup)
 
+
+def _entering_username_filter(message):
+    if not getattr(message, 'text', None) or message.content_type != 'text':
+        return False
+    uid = message.from_user.id
+    if uid in blocked_users:
+        return False
+    if not is_session_valid(uid):
+        return False
+    s = get_user_session(uid)
+    return bool(s and s.get('step') == 'entering_username')
+
+
+@bot.message_handler(content_types=['text'], func=_entering_username_filter)
+def route_entering_username(message):
+    process_username(message)
+
+
 # مدیریت خطاهای عمومی
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
@@ -3174,8 +3261,21 @@ def handle_all_messages(message):
         bot.send_message(message.chat.id, "❌ شما از استفاده از این ربات مسدود شده‌اید.")
         return
     
-    # بررسی اعتبار جلسه
     session = get_user_session(user_id)
+    if session and session.get('step') == 'entering_username':
+        bot.send_message(
+            message.chat.id,
+            "لطفا نام کاربری را فقط به صورت متن انگلیسی بفرستید.",
+        )
+        return
+    if session and session.get('step') == 'uploading_receipt':
+        bot.send_message(
+            message.chat.id,
+            "📸 لطفا تصویر رسید پرداخت را ارسال کنید.",
+        )
+        return
+
+    # بررسی اعتبار جلسه
     if session and session.get('step') == 'representation_request':
         # اگر کاربر در مرحله درخواست نمایندگی است، پیام‌های غیرمنتظره را نادیده بگیر
         if message.text not in ['✅ بله', '❌ خیر', '🔙 بازگشت', '🏠 منوی اصلی']:
