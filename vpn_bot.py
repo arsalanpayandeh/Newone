@@ -4,6 +4,7 @@ import os
 import shutil
 import tempfile
 import time
+import secrets
 import json
 from datetime import datetime
 
@@ -67,7 +68,6 @@ def deliver_config_from_pool(user_id, plan_key):
     return True, "کانفیگ ارسال شد."
 
 # تنظیمات اضافی برای بهبود تجربه کاربری
-MAX_RETRIES = 3  # حداکثر تلاش برای ورود اطلاعات
 SESSION_TIMEOUT = 300  # زمان انقضای جلسه (5 دقیقه)
 
 # فایل‌های ذخیره‌سازی (مسیر مطلق برای جلوگیری از پاک شدن ناخواسته در تغییر محیط)
@@ -344,7 +344,7 @@ def help_command(message):
 1. روی «🛒 خرید فیلترشکن» کلیک کنید
 2. حجم داده مورد نظر را انتخاب کنید
 3. مدت زمان اشتراک را انتخاب کنید
-4. نام کاربری دلخواه وارد کنید
+4. نام کاربری به‌صورت خودکار برای شما ساخته می‌شود
 5. قیمت را بررسی و تأیید کنید
 6. مبلغ را پرداخت کنید
 7. رسید را ارسال کنید
@@ -810,11 +810,6 @@ def start_wallet_charge(message):
 
 def process_wallet_charge_amount(message):
     user_id = message.from_user.id
-    session = get_user_session(user_id)
-    if session and is_session_valid(user_id) and session.get('step') == 'entering_username':
-        bot.clear_step_handler(message)
-        process_username(message)
-        return
     if message.text in ['🔙 بازگشت', '🏠 منوی اصلی']:
         start(message)
         return
@@ -844,11 +839,6 @@ def ask_wallet_receipt(message):
 
 def process_wallet_receipt(message):
     user_id = message.from_user.id
-    session = get_user_session(user_id)
-    if session and is_session_valid(user_id) and session.get('step') == 'entering_username':
-        bot.clear_step_handler(message)
-        process_username(message)
-        return
     if message.text in ['🔙 بازگشت', '🏠 منوی اصلی']:
         start(message)
         return
@@ -880,8 +870,6 @@ def process_support_message(message):
     session = get_user_session(user_id)
     if not session or session.get('step') != 'support':
         bot.clear_step_handler(message)
-        if session and is_session_valid(user_id) and session.get('step') == 'entering_username':
-            process_username(message)
         return
     
     if message.text == '🔙 بازگشت':
@@ -1547,7 +1535,7 @@ def show_data_plans(message):
 
 
 def _fixed_plan_select_filter(message):
-    """فقط وقتی کاربر واقعاً در صفحهٔ انتخاب پلن است (نه مثلاً در ورود نام کاربری)."""
+    """فقط وقتی کاربر در صفحهٔ انتخاب پلن است."""
     if not message.text or not message.text.strip().endswith('گیگ'):
         return False
     uid = message.from_user.id
@@ -1592,10 +1580,10 @@ def process_fixed_plan_selection(message):
 
     update_user_session(user_id, 'data_selected', {'data_plan': plan_key, 'data_gb': gb_value})
 
-    # فقط 1 ماهه است، پس مستقیم به انتخاب نام کاربری برویم
+    # فقط 1 ماهه است؛ نام کاربری خودکار و نمایش قیمت
     user_data[user_id]['duration'] = '1month'
     update_user_session(user_id, 'duration_selected', {'duration': '1month'})
-    ask_username(message)
+    apply_auto_username_and_show_price(message)
 
 def show_payment_methods(message, user_id):
     """نمایش منوی روش‌های پرداخت"""
@@ -1655,7 +1643,6 @@ def _purchase_back_button_filter(message):
         return False
     step = (get_user_session(uid) or {}).get('step')
     return step in (
-        'entering_username',
         'price_shown',
         'payment_confirmed',
         'card_receipt_pending',
@@ -1669,13 +1656,9 @@ def purchase_flow_back(message):
     user_id = message.from_user.id
     step = get_user_session(user_id).get('step')
 
-    if step == 'entering_username':
-        bot.clear_step_handler(message)
-        show_data_plans(message)
-        return
     if step == 'price_shown':
         bot.clear_step_handler(message)
-        ask_username(message)
+        show_data_plans(message)
         return
     if step == 'payment_confirmed':
         show_final_price(message)
@@ -1690,120 +1673,23 @@ def purchase_flow_back(message):
         return
 
 
-# درخواست نام کاربری
-def ask_username(message):
-    """درخواست نام کاربری با طراحی بهتر"""
+def _generate_automatic_username(user_id):
+    """نام کاربری انگلیسی کوتاه و یکتا (الگوی قبلی سرور: حرف + حروف/اعداد/خط تیره)."""
+    # u + 10 hex = 11 کاراکتر؛ در محدودیت 3–20 کاراکتر
+    return f"u{secrets.token_hex(5)}"
+
+
+def apply_auto_username_and_show_price(message):
+    """پس از انتخاب پلن، نام کاربری خودکار ثبت و خلاصه سفارش نمایش داده می‌شود."""
     user_id = message.from_user.id
-    
-    # بررسی اعتبار جلسه
     if not is_session_valid(user_id):
         bot.send_message(message.chat.id, "⏰ جلسه شما منقضی شده است. لطفا دوباره شروع کنید.")
         start(message)
         return
-    
-    bot.clear_step_handler(message)
-    update_user_session(user_id, 'entering_username')
-    
-    markup = create_back_button()
-    
-    username_text = """
-👤 نام کاربری
-
-لطفا نام کاربری مورد نظر خود را وارد کنید:
-
-📝 قوانین نام کاربری:
-• فقط حروف انگلیسی، اعداد و خط تیره
-• حداقل 3 کاراکتر و حداکثر 20 کاراکتر
-• نباید با عدد شروع شود
-• مثال: user123, my-vpn, test_user
-
-💡 نکته: این نام کاربری برای اتصال به سرور استفاده خواهد شد.
-    """
-    
-    bot.send_message(message.chat.id, username_text, reply_markup=markup)
-    bot.register_next_step_handler(message, process_username)
-
-
-# پردازش نام کاربری
-def process_username(message):
-    """پردازش نام کاربری با اعتبارسنجی بهتر"""
-    user_id = message.from_user.id
-    
-    # بررسی اعتبار جلسه
-    if not is_session_valid(user_id):
-        bot.send_message(message.chat.id, "⏰ جلسه شما منقضی شده است. لطفا دوباره شروع کنید.")
-        start(message)
-        return
-    
-    # بررسی دکمه‌های بازگشت
-    if message.text in ['🔙 بازگشت', '🏠 منوی اصلی']:
-        if message.text == '🔙 بازگشت':
-            show_data_plans(message)
-        else:
-            start(message)
-        return
-    
-    username = message.text.strip()
     user_data.setdefault(user_id, {})
-    
-    # اعتبارسنجی نام کاربری
-    import re
-    username_pattern = re.compile(r'^[a-zA-Z][a-zA-Z0-9_-]{2,19}$')
-    
-    if not username_pattern.match(username):
-        # افزایش شمارنده تلاش
-        session = get_user_session(user_id)
-        retry_count = session.get('data', {}).get('username_retry', 0) + 1
-        
-        if retry_count >= MAX_RETRIES:
-            bot.send_message(message.chat.id, 
-                           "❌ تعداد تلاش‌های شما به پایان رسید.\n"
-                           "لطفا دوباره از منوی اصلی شروع کنید.")
-            clear_user_session(user_id)
-            start(message)
-            return
-        
-        update_user_session(user_id, 'entering_username', {'username_retry': retry_count})
-        
-        error_text = f"""
-❌ نام کاربری نامعتبر است!
-
-📝 قوانین نام کاربری:
-• فقط حروف انگلیسی، اعداد و خط تیره
-• حداقل 3 کاراکتر و حداکثر 20 کاراکتر
-• باید با حرف شروع شود
-• مثال: user123, my-vpn, test_user
-
-🔄 تلاش {retry_count} از {MAX_RETRIES}
-        """
-        
-        markup = create_back_button()
-        bot.send_message(message.chat.id, error_text, reply_markup=markup)
-        return
-    
-    # ذخیره نام کاربری
-    user_data[user_id]['username'] = username
-    update_user_session(user_id, 'username_entered', {'username': username})
-    
-    # نمایش قیمت نهایی
+    user_data[user_id]['username'] = _generate_automatic_username(user_id)
+    update_user_session(user_id, 'username_entered', {'username': user_data[user_id]['username']})
     show_final_price(message)
-
-
-def _entering_username_filter(message):
-    if not getattr(message, 'text', None):
-        return False
-    uid = message.from_user.id
-    if uid in blocked_users:
-        return False
-    if not is_session_valid(uid):
-        return False
-    s = get_user_session(uid)
-    return bool(s and s.get('step') == 'entering_username')
-
-
-@bot.message_handler(content_types=['text'], func=_entering_username_filter)
-def route_entering_username(message):
-    process_username(message)
 
 
 # محاسبه و نمایش قیمت نهایی
@@ -1868,7 +1754,7 @@ def show_final_price(message):
     order_summary = f"""
 📋 خلاصه سفارش شما
 
-👤 نام کاربری: `{username}`
+👤 نام کاربری (خودکار): `{username}`
 📊 حجم داده: {data_plan_text}
 ⏱ مدت زمان: {duration_text}
 
@@ -2042,10 +1928,6 @@ def process_receipt(message):
     user_id = message.from_user.id
     if getattr(message, 'content_type', None) != 'photo':
         session = get_user_session(user_id)
-        if session and is_session_valid(user_id) and session.get('step') == 'entering_username':
-            bot.clear_step_handler(message)
-            process_username(message)
-            return
         if session and is_session_valid(user_id) and session.get('step') == 'uploading_receipt':
             bot.send_message(message.chat.id, "📸 لطفا فقط تصویر رسید پرداخت را ارسال کنید.")
             return
@@ -3297,10 +3179,6 @@ def handle_all_messages(message):
         return
     
     session = get_user_session(user_id)
-    # اگر به هر دلیلی هندلر اختصاصی نام کاربری اجرا نشد، اینجا همان منطق را اجرا کن
-    if session and session.get('step') == 'entering_username' and getattr(message, 'text', None):
-        process_username(message)
-        return
     if session and session.get('step') == 'uploading_receipt':
         bot.send_message(
             message.chat.id,
