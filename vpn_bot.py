@@ -306,6 +306,7 @@ def start(message):
                         "لطفا با پشتیبانی تماس بگیرید.")
         return
     
+    bot.clear_step_handler(message)
     # شروع جلسه جدید
     start_user_session(user_id, 'main_menu')
     
@@ -360,6 +361,7 @@ def help_command(message):
 • در صورت مشکل با پشتیبانی تماس بگیرید
     """
     
+    user_id = message.from_user.id
     markup = create_main_menu(user_id)
     bot.send_message(message.chat.id, help_text, reply_markup=markup)
 
@@ -380,7 +382,7 @@ def main_menu_handler(message):
         # پاک کردن اطلاعات قبلی
         if user_id in user_data:
             user_data[user_id] = {}
-        
+        bot.clear_step_handler(message)
         update_user_session(user_id, 'buying', {'retry_count': 0})
         show_data_plans(message)
         
@@ -808,6 +810,11 @@ def start_wallet_charge(message):
 
 def process_wallet_charge_amount(message):
     user_id = message.from_user.id
+    session = get_user_session(user_id)
+    if session and is_session_valid(user_id) and session.get('step') == 'entering_username':
+        bot.clear_step_handler(message)
+        process_username(message)
+        return
     if message.text in ['🔙 بازگشت', '🏠 منوی اصلی']:
         start(message)
         return
@@ -837,6 +844,11 @@ def ask_wallet_receipt(message):
 
 def process_wallet_receipt(message):
     user_id = message.from_user.id
+    session = get_user_session(user_id)
+    if session and is_session_valid(user_id) and session.get('step') == 'entering_username':
+        bot.clear_step_handler(message)
+        process_username(message)
+        return
     if message.text in ['🔙 بازگشت', '🏠 منوی اصلی']:
         start(message)
         return
@@ -863,6 +875,13 @@ def process_support_message(message):
     # بررسی مسدودیت کاربر
     if user_id in blocked_users:
         bot.send_message(message.chat.id, "❌ شما از استفاده از این ربات مسدود شده‌اید.")
+        return
+    
+    session = get_user_session(user_id)
+    if not session or session.get('step') != 'support':
+        bot.clear_step_handler(message)
+        if session and is_session_valid(user_id) and session.get('step') == 'entering_username':
+            process_username(message)
         return
     
     if message.text == '🔙 بازگشت':
@@ -1502,6 +1521,7 @@ def show_data_plans(message):
         start(message)
         return
 
+    bot.clear_step_handler(message)
     update_user_session(user_id, 'selecting_data_plan')
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -1681,6 +1701,7 @@ def ask_username(message):
         start(message)
         return
     
+    bot.clear_step_handler(message)
     update_user_session(user_id, 'entering_username')
     
     markup = create_back_button()
@@ -1854,7 +1875,8 @@ def show_final_price(message):
     home_btn = types.KeyboardButton('🏠 منوی اصلی')
     markup.add(confirm_btn, cancel_btn, back_btn, home_btn)
     
-    bot.send_message(message.chat.id, order_summary, reply_markup=markup, parse_mode="Markdown")
+    # بدون Markdown تا به‌خاطر کاراکترهای خاص در متن فارسی/عدد، ارسال ناموفق نشود
+    bot.send_message(message.chat.id, order_summary, reply_markup=markup)
 
 # پردازش تأیید و ورود به انتخاب روش پرداخت
 @bot.message_handler(func=lambda message: message.text in ['✅ تأیید و پرداخت', '❌ انصراف'])
@@ -1997,6 +2019,15 @@ def process_receipt(message):
         return
     
     user_id = message.from_user.id
+    if getattr(message, 'content_type', None) != 'photo':
+        session = get_user_session(user_id)
+        if session and is_session_valid(user_id) and session.get('step') == 'entering_username':
+            bot.clear_step_handler(message)
+            process_username(message)
+            return
+        if session and is_session_valid(user_id) and session.get('step') == 'uploading_receipt':
+            bot.send_message(message.chat.id, "📸 لطفا فقط تصویر رسید پرداخت را ارسال کنید.")
+            return
     
     # ذخیره اطلاعات رسید
     user_data[user_id]['receipt_id'] = message.id
@@ -3234,7 +3265,7 @@ def send_welcome_message(chat_id, user_name):
 
 
 def _entering_username_filter(message):
-    if not getattr(message, 'text', None) or message.content_type != 'text':
+    if not getattr(message, 'text', None):
         return False
     uid = message.from_user.id
     if uid in blocked_users:
