@@ -382,10 +382,14 @@ def main_menu_handler(message):
         show_representation_request(message)
         
     elif message.text == '⚙️ پنل مدیریت':
-        if is_admin(user_id):
-            show_admin_panel(message)
-        else:
+        if not is_admin(user_id):
             bot.send_message(message.chat.id, "⛔️ شما دسترسی به این بخش را ندارید.")
+            return
+        try:
+            show_admin_panel(message)
+        except Exception as e:
+            print(f"Error opening admin panel for {user_id}: {e}")
+            bot.send_message(message.chat.id, "⚠️ خطا در باز کردن پنل مدیریت. دوباره تلاش کنید.")
 
 # نمایش درخواست نمایندگی
 def show_representation_request(message):
@@ -912,23 +916,28 @@ def show_admin_panel(message):
     back = types.KeyboardButton('🔙 بازگشت')
     markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, back)
     
-    bot.send_message(message.chat.id, 
-                     "⚙️ پنل مدیریت:\n\n"
-                     f"🆔 آیدی عددی ادمین: `{ADMIN_ID}`\n"
-                     f"👤 یوزرنیم ادمین: {ADMIN_USERNAME}\n"
-                     f"🆔 آیدی عددی ادمین دوم: `{SECOND_ADMIN_ID if SECOND_ADMIN_ID > 0 else 'تنظیم نشده'}`\n"
-                     f"👤 یوزرنیم ادمین دوم: {SECOND_ADMIN_USERNAME if SECOND_ADMIN_USERNAME else 'تنظیم نشده'}\n"
-                     f"💳 شماره کارت: `{CARD_NUMBER}`\n"
-                     f"👥 تعداد کاربران: {len(users_db)}\n"
-                     f"🚫 کاربران مسدود: {len(blocked_users)}\n"
-                     f"💰 تخفیف فعلی: {discount_percentage}%",
-                     parse_mode="Markdown",
-                     reply_markup=markup)
+    try:
+        bot.send_message(
+            message.chat.id,
+            "⚙️ پنل مدیریت:\n\n"
+            f"🆔 آیدی عددی ادمین: {ADMIN_ID}\n"
+            f"👤 یوزرنیم ادمین: {ADMIN_USERNAME}\n"
+            f"🆔 آیدی عددی ادمین دوم: {SECOND_ADMIN_ID if SECOND_ADMIN_ID > 0 else 'تنظیم نشده'}\n"
+            f"👤 یوزرنیم ادمین دوم: {SECOND_ADMIN_USERNAME if SECOND_ADMIN_USERNAME else 'تنظیم نشده'}\n"
+            f"💳 شماره کارت: {CARD_NUMBER}\n"
+            f"👥 تعداد کاربران: {len(users_db)}\n"
+            f"🚫 کاربران مسدود: {len(blocked_users)}\n"
+            f"💰 تخفیف فعلی: {discount_percentage}%",
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"Error showing admin panel: {e}")
+        bot.send_message(message.chat.id, "⚠️ خطا در باز کردن پنل مدیریت. دوباره تلاش کنید.")
 
 # مدیریت کاربران
 @bot.message_handler(func=lambda message: message.text == '👥 مدیریت کاربران')
 def manage_users(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -948,7 +957,7 @@ def manage_users(message):
 # لیست کاربران
 @bot.message_handler(func=lambda message: message.text == '📋 لیست کاربران')
 def list_users(message):
-    if message.from_user.id != ADMIN_ID:
+    if not is_admin(message.from_user.id):
         return
     
     if not users_db:
