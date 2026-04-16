@@ -5,8 +5,7 @@
     "last_name": null,
     "join_date": "2025-07-13 21:28:15",
     "orders": [],
-    "total_spent": 0,
-    "wallet_balance": 0
+    "total_spent": 0
   },
   "6211336377": {
     "username": "ndndndjdjmm",
@@ -39,8 +38,7 @@
         "receipt_id": 480
       }
     ],
-    "total_spent": 185000,
-    "wallet_balance": 0
+    "total_spent": 185000
   },
   "1023059137": {
     "username": "survive_d",
@@ -57,8 +55,7 @@
         "receipt_id": 540
       }
     ],
-    "total_spent": 90000,
-    "wallet_balance": 0
+    "total_spent": 90000
   },
   "7952331488": {
     "username": "azizam_10me",
@@ -75,19 +72,6 @@
         "receipt_id": 695
       }
     ],
-    "total_spent": 60000,
-    "wallet_balance": 0
-  },
-  "8726339705": {
-    "first_name": "Evil",
-    "username": "evil_fhdfhds",
-    "join_date": "2026-04-17 01:24:24",
-    "orders": [],
-    "total_spent": 0,
-    "configs": [],
-    "wallet_balance": 0,
-    "is_representative": false,
-    "representative_discount": 0,
-    "representation_date": null
+    "total_spent": 60000
   }
 }

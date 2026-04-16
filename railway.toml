@@ -1,0 +1,9 @@
+# Railway deploy config — Telegram bot (long polling)
+# اگر سرویس را به‌صورت Web ساخته‌اید، متغیر PORT ست می‌شود؛ ربات در vpn_bot.py یک health روی همان پورت باز می‌کند.
+# ترجیح: در Railway نوع سرویس را Worker بگذارید تا فقط پروسهٔ ربات اجرا شود.
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python -X utf8 vpn_bot.py"

@@ -2,6 +2,19 @@
   "plans": {
     "1GB": [],
     "2GB": [],
-    "5GB": []
+    "5GB": [],
+    "STAR_1GB": [],
+    "STAR_5GB": [],
+    "TUNNEL_1GB": [
+      {
+        "type": "text",
+        "value": "vjvjf",
+        "upload_date": "2026-04-17 01:25:36"
+      }
+    ],
+    "TUNNEL_2GB": [],
+    "TUNNEL_3GB": [],
+    "TUNNEL_4GB": [],
+    "TUNNEL_5GB": []
   }
 }

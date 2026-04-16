@@ -3570,12 +3570,41 @@ def handle_wallet_charge_approval(call):
     del pending_wallet_charges[full_charge_id]
     bot.answer_callback_query(call.id)
 
+def _start_railway_health_server():
+    """اگر Railway سرویس را Web گذاشته باشد، PORT ست می‌شود؛ یک HTTP سبک برای health باز می‌کنیم تا پروسه «زنده» بماند."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    port_str = os.environ.get("PORT")
+    if not port_str:
+        return
+
+    class _HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, format, *args):
+            pass
+
+    try:
+        port = int(port_str)
+        httpd = HTTPServer(("0.0.0.0", port), _HealthHandler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        print(f"✅ Health HTTP روی 0.0.0.0:{port} (برای Railway Web)")
+    except Exception as e:
+        print(f"⚠️ Health HTTP شروع نشد (ممکن است Worker بدون PORT باشد): {e}")
+
 if __name__ == "__main__":
     import time
     import threading
     
     # بارگذاری داده‌ها
     load_data()
+
+    _start_railway_health_server()
     
     # حذف webhook قبل از شروع polling
     try:
@@ -3604,29 +3633,22 @@ if __name__ == "__main__":
     auto_save_thread.start()
     print("💾 سیستم auto-save فعال شد.")
     
-    # شروع polling با retry mechanism
-    max_retries = 3
-    retry_count = 0
-    
-    while retry_count < max_retries:
+    # polling با تلاش بی‌نهایت (خروج از پروسه = خاموش شدن Railway)
+    backoff = 5
+    while True:
         try:
             print("🔄 شروع polling...")
             bot.polling(none_stop=True, interval=1, timeout=60)
         except Exception as e:
-            retry_count += 1
-            print(f"❌ خطا در polling (تلاش {retry_count}/{max_retries}): {e}")
-            
-            if retry_count < max_retries:
-                print("🔄 تلاش مجدد در 10 ثانیه...")
-                time.sleep(10)
-                
-                # حذف webhook قبل از تلاش مجدد
-                try:
-                    bot.remove_webhook()
-                    print("✅ Webhook حذف شد.")
-                    time.sleep(2)
-                except:
-                    pass
-            else:
-                print("❌ حداکثر تعداد تلاش‌ها انجام شد. ربات متوقف می‌شود.")
-                break
+            print(f"❌ خطا در polling: {e}")
+            print(f"🔄 تلاش مجدد در {backoff} ثانیه...")
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 120)
+            try:
+                bot.remove_webhook()
+                print("✅ Webhook حذف شد.")
+                time.sleep(2)
+            except Exception:
+                pass
+        else:
+            backoff = 5
