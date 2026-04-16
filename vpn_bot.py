@@ -49,6 +49,23 @@ def forward_message_to_admins(from_chat_id, message_id):
             print(f"❌ Error forwarding message to admin {admin_id}: {e}")
     return forwarded_messages
 
+def deliver_config_from_pool(user_id, plan_key):
+    """ارسال کانفیگ یکبارمصرف از استخر پلن به کاربر"""
+    pool = configs_db.get('plans', {}).get(plan_key, [])
+    if not pool:
+        return False, "موجودی این پلن خالی است."
+
+    entry = pool.pop(0)
+    save_data()
+
+    if entry.get('type') == 'document':
+        file_id = entry.get('value')
+        bot.send_document(user_id, file_id, caption="سرویس استارلینگ پر سرعت\n\n🔐 فایل کانفیگ شما آماده است.")
+    else:
+        cfg = entry.get('value', '')
+        bot.send_message(user_id, f"سرویس استارلینگ پر سرعت\n\n🔐 کانفیگ شما:\n\n```{cfg}```", parse_mode="Markdown")
+    return True, "کانفیگ ارسال شد."
+
 # تنظیمات اضافی برای بهبود تجربه کاربری
 MAX_RETRIES = 3  # حداکثر تلاش برای ورود اطلاعات
 SESSION_TIMEOUT = 300  # زمان انقضای جلسه (5 دقیقه)
@@ -108,6 +125,7 @@ orders_db = {}  # ذخیره سفارشات
 
 # حافظه موقت برای سفارشات در انتظار تأیید
 pending_orders = {}  # {order_id: {user_id, order_info}}
+pending_wallet_charges = {}  # {charge_id: {user_id, amount, created_at}}
 
 # مدیریت جلسات کاربران
 user_sessions = {}  # {user_id: {'step': 'current_step', 'data': {}, 'timestamp': time.time()}}
@@ -155,6 +173,8 @@ def load_data():
                 users_db = json.load(f)
                 # تبدیل کلیدهای string به int
                 users_db = {int(k): v for k, v in users_db.items()}
+                for u in users_db.values():
+                    u.setdefault('wallet_balance', 0)
         
         # بارگذاری کاربران مسدود
         if os.path.exists(DATA_FILES['blocked']):
@@ -273,6 +293,7 @@ def start(message):
             'orders': [],
             'total_spent': 0,
             'configs': [],
+            'wallet_balance': 0,
             'is_representative': False,  # وضعیت نمایندگی
             'representative_discount': 0,  # درصد تخفیف نمایندگی
             'representation_date': None  # تاریخ تأیید نمایندگی
@@ -318,7 +339,7 @@ def help_command(message):
     bot.send_message(message.chat.id, help_text, reply_markup=markup)
 
 # پاسخ به دکمه‌های اصلی
-@bot.message_handler(func=lambda message: message.text in ['🛒 خرید فیلترشکن', '👤 حساب من', '🔐 کانفیگ‌های من', '📞 پشتیبانی', '🏢 درخواست نمایندگی', '⚙️ پنل مدیریت'])
+@bot.message_handler(func=lambda message: message.text in ['🛒 خرید فیلترشکن', '👤 حساب من', '🔐 کانفیگ‌های من', '💳 کیف پول', '📞 پشتیبانی', '🏢 درخواست نمایندگی', '⚙️ پنل مدیریت'])
 def main_menu_handler(message):
     user_id = message.from_user.id
     
@@ -343,6 +364,9 @@ def main_menu_handler(message):
         
     elif message.text == '🔐 کانفیگ‌های من':
         show_user_configs(message)
+
+    elif message.text == '💳 کیف پول':
+        show_wallet_menu(message)
         
     elif message.text == '📞 پشتیبانی':
         update_user_session(user_id, 'support')
@@ -602,6 +626,7 @@ def show_user_account(message):
     user = users_db[user_id]
     orders = user.get('orders', [])
     total_spent = user.get('total_spent', 0)
+    wallet_balance = user.get('wallet_balance', 0)
     join_date = user.get('join_date', 'نامشخص')
     
     # محاسبه آمار
@@ -634,6 +659,7 @@ def show_user_account(message):
 • تعداد سفارشات: {total_orders} عدد
 • کل هزینه: {total_spent:,} تومان
 • کانفیگ‌های فعال: {active_configs} عدد
+• موجودی کیف پول: {wallet_balance:,} تومان
 
 """
     
@@ -731,6 +757,72 @@ def show_user_configs(message):
                     "💡 برای دانلود کانفیگ، روی دکمه '📥 دانلود کانفیگ' کلیک کنید.",
                     parse_mode="Markdown",
                     reply_markup=markup)
+
+# کیف پول
+def show_wallet_menu(message):
+    user_id = message.from_user.id
+    if user_id not in users_db:
+        bot.send_message(message.chat.id, "❌ ابتدا باید در ربات ثبت نام کنید.")
+        return
+    balance = users_db[user_id].get('wallet_balance', 0)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(types.KeyboardButton('➕ شارژ کیف پول'), types.KeyboardButton('🔙 بازگشت'), types.KeyboardButton('🏠 منوی اصلی'))
+    bot.send_message(message.chat.id, f"💳 کیف پول شما\n\n💰 موجودی فعلی: {balance:,} تومان", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text == '➕ شارژ کیف پول')
+def start_wallet_charge(message):
+    bot.send_message(message.chat.id, "💳 مبلغ شارژ را به تومان وارد کنید (مثال: 500000):", reply_markup=create_back_button())
+    bot.register_next_step_handler(message, process_wallet_charge_amount)
+
+def process_wallet_charge_amount(message):
+    user_id = message.from_user.id
+    if message.text in ['🔙 بازگشت', '🏠 منوی اصلی']:
+        start(message)
+        return
+    try:
+        amount = int(str(message.text).replace(',', '').strip())
+        if amount <= 0:
+            raise ValueError()
+    except Exception:
+        bot.send_message(message.chat.id, "❌ مبلغ نامعتبر است.")
+        bot.register_next_step_handler(message, process_wallet_charge_amount)
+        return
+    user_data.setdefault(user_id, {})
+    user_data[user_id]['wallet_topup_amount'] = amount
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add(types.KeyboardButton('📤 ارسال رسید شارژ'), types.KeyboardButton('🔙 بازگشت'), types.KeyboardButton('🏠 منوی اصلی'))
+    bot.send_message(message.chat.id, f"💳 شارژ: {amount:,} تومان\n🏦 کارت: `{CARD_NUMBER}`\n👤 به نام: خلیلی\n\nپس از پرداخت، رسید را ارسال کنید.", parse_mode="Markdown", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text == '📤 ارسال رسید شارژ')
+def ask_wallet_receipt(message):
+    user_id = message.from_user.id
+    if not user_data.get(user_id, {}).get('wallet_topup_amount'):
+        bot.send_message(message.chat.id, "❌ ابتدا مبلغ شارژ را ثبت کنید.")
+        show_wallet_menu(message)
+        return
+    bot.send_message(message.chat.id, "📸 لطفا تصویر رسید شارژ را ارسال کنید.", reply_markup=create_back_button())
+    bot.register_next_step_handler(message, process_wallet_receipt)
+
+def process_wallet_receipt(message):
+    user_id = message.from_user.id
+    if message.text in ['🔙 بازگشت', '🏠 منوی اصلی']:
+        start(message)
+        return
+    if message.content_type != 'photo':
+        bot.send_message(message.chat.id, "❌ لطفا فقط تصویر رسید بفرستید.")
+        bot.register_next_step_handler(message, process_wallet_receipt)
+        return
+    amount = user_data.get(user_id, {}).get('wallet_topup_amount')
+    charge_id = f"charge_{user_id}_{int(time.time())}"
+    pending_wallet_charges[charge_id] = {'user_id': user_id, 'amount': amount, 'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    forward_message_to_admins(message.chat.id, message.id)
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("✅ تایید شارژ", callback_data=f"wallet_approve_{charge_id}"),
+        types.InlineKeyboardButton("❌ رد شارژ", callback_data=f"wallet_reject_{charge_id}")
+    )
+    send_message_to_admins(f"💳 درخواست شارژ\n🆔 `{user_id}`\n💰 {amount:,} تومان", parse_mode="Markdown", reply_markup=markup)
+    bot.send_message(message.chat.id, "✅ رسید شارژ ثبت شد. بعد از تایید، موجودی شما افزایش می‌یابد.")
 
 # پردازش پیام پشتیبانی
 def process_support_message(message):
@@ -1604,7 +1696,7 @@ def show_final_price(message):
     order_summary += f"""
 • قیمت نهایی: {final_price:,} تومان
 
-✅ آیا می‌خواهید این سفارش را تکمیل کنید؟
+✅ آیا می‌خواهید به مرحله انتخاب روش پرداخت بروید؟
 """
     
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -1616,7 +1708,7 @@ def show_final_price(message):
     
     bot.send_message(message.chat.id, order_summary, reply_markup=markup, parse_mode="Markdown")
 
-# پردازش تأیید پرداخت
+# پردازش تأیید و ورود به انتخاب روش پرداخت
 @bot.message_handler(func=lambda message: message.text in ['✅ تأیید و پرداخت', '❌ انصراف'])
 def process_payment_confirmation(message):
     user_id = message.from_user.id
@@ -1644,53 +1736,75 @@ def process_payment_confirmation(message):
     
     update_user_session(user_id, 'payment_confirmed')
     
-    # نمایش اطلاعات پرداخت
+    # نمایش روش‌های پرداخت
+    price = user_data[user_id]['price']
+
+    payment_info = f"""💳 انتخاب روش پرداخت
+
+💰 مبلغ سفارش: {price:,} تومان
+
+یکی از روش‌ها را انتخاب کنید:
+• کارت به کارت
+• کیف پول"""
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    card_btn = types.KeyboardButton('💳 پرداخت کارت به کارت')
+    wallet_btn = types.KeyboardButton('👛 پرداخت از کیف پول')
+    cancel_btn = types.KeyboardButton('❌ انصراف')
+    back_btn = types.KeyboardButton('🔙 بازگشت')
+    home_btn = types.KeyboardButton('🏠 منوی اصلی')
+    
+    markup.add(card_btn, wallet_btn, cancel_btn, back_btn, home_btn)
+    
+    bot.send_message(message.chat.id, payment_info, reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text in ['💳 پرداخت کارت به کارت', '👛 پرداخت از کیف پول'])
+def process_payment_method(message):
+    user_id = message.from_user.id
+    if user_id not in user_data or 'price' not in user_data[user_id]:
+        bot.send_message(message.chat.id, "❌ اطلاعات سفارش ناقص است.")
+        start(message)
+        return
+
+    if message.text == '👛 پرداخت از کیف پول':
+        balance = users_db.get(user_id, {}).get('wallet_balance', 0)
+        price = user_data[user_id]['price']
+        if balance < price:
+            bot.send_message(message.chat.id, "❌ موجودی کیف پول کافی نیست. ابتدا کیف پول را شارژ کنید.")
+            show_wallet_menu(message)
+            return
+
+        plan_key = user_data[user_id]['data_plan']
+        ok, reason = deliver_config_from_pool(user_id, plan_key)
+        if not ok:
+            bot.send_message(message.chat.id, f"❌ {reason}")
+            send_message_to_admins(f"⚠️ سفارش کیف پول بدون موجودی کانفیگ: کاربر {user_id} پلن {plan_key}")
+            return
+
+        users_db[user_id]['wallet_balance'] = balance - price
+        save_data()
+        bot.send_message(message.chat.id, f"✅ پرداخت با کیف پول انجام شد.\n💰 موجودی جدید: {users_db[user_id]['wallet_balance']:,} تومان")
+        return
+
+    # مسیر کارت به کارت
     price = user_data[user_id]['price']
     data_gb = user_data[user_id].get('data_gb', int(user_data[user_id]['data_plan'].replace('GB', '')))
-    duration = user_data[user_id]['duration']
     username = user_data[user_id]['username']
-    
-    duration_text = {
-        '1month': '1 ماهه',
-        '3month': '3 ماهه',
-        '6month': '6 ماهه',
-        '1year': '1 ساله'
-    }.get(duration, duration)
-    
-    payment_info = f"""
-💳 اطلاعات پرداخت
+    payment_info = f"""💳 اطلاعات پرداخت کارت به کارت
 
 📋 خلاصه سفارش:
 • نام کاربری: `{username}`
 • حجم داده: {data_gb} گیگابایت
-• مدت زمان: {duration_text}
 • مبلغ: {price:,} تومان
 
 🏦 اطلاعات کارت:
 • شماره: `{CARD_NUMBER}`
 • به نام: خلیلی
 
-📸 پس از پرداخت:
-1. روی دکمه «📤 ارسال رسید پرداخت» کلیک کنید
-2. تصویر رسید را ارسال کنید
-3. منتظر تأیید بمانید
-
-⚠️ نکات مهم:
-• حتماً شماره کارت را درست وارد کنید
-• رسید پرداخت را واضح و کامل ارسال کنید
-• در صورت مشکل با پشتیبانی تماس بگیرید
-    """
-    
+📸 سپس روی «📤 ارسال رسید پرداخت» بزنید."""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    receipt_btn = types.KeyboardButton('📤 ارسال رسید پرداخت')
-    cancel_btn = types.KeyboardButton('❌ انصراف')
-    back_btn = types.KeyboardButton('🔙 بازگشت')
-    home_btn = types.KeyboardButton('🏠 منوی اصلی')
-    
-    markup.add(receipt_btn, cancel_btn, back_btn, home_btn)
-    
+    markup.add(types.KeyboardButton('📤 ارسال رسید پرداخت'), types.KeyboardButton('❌ انصراف'), types.KeyboardButton('🔙 بازگشت'), types.KeyboardButton('🏠 منوی اصلی'))
     bot.send_message(message.chat.id, payment_info, parse_mode="Markdown", reply_markup=markup)
-    bot.register_next_step_handler(message, process_receipt_option)
 
 # پردازش انتخاب ارسال رسید
 @bot.message_handler(func=lambda message: message.text in ['📤 ارسال رسید پرداخت', '❌ انصراف', '🔙 بازگشت', '🏠 منوی اصلی'])
@@ -1799,6 +1913,7 @@ def process_receipt(message):
         # ذخیره اطلاعات سفارش در انتظار تأیید
         pending_orders[order_id] = {
             'user_id': user_id,
+            'plan_key': user_data[user_id]['data_plan'],
             'data_plan': f"{data_gb} گیگابایت",
             'duration': duration_text,
             'username': username,
@@ -2951,11 +3066,12 @@ def create_main_menu(user_id=None):
     buy_btn = types.KeyboardButton('🛒 خرید فیلترشکن')
     account_btn = types.KeyboardButton('👤 حساب من')
     configs_btn = types.KeyboardButton('🔐 کانفیگ‌های من')
+    wallet_btn = types.KeyboardButton('💳 کیف پول')
     support_btn = types.KeyboardButton('📞 پشتیبانی')
     representation_btn = types.KeyboardButton('🏢 درخواست نمایندگی')
     admin_btn = types.KeyboardButton('⚙️ پنل مدیریت')
     
-    markup.add(buy_btn, account_btn, configs_btn, support_btn, representation_btn)
+    markup.add(buy_btn, account_btn, configs_btn, wallet_btn, support_btn, representation_btn)
     if user_id == ADMIN_ID:  # فقط برای ادمین اصلی نمایش داده شود
         markup.add(admin_btn)
     
@@ -3307,26 +3423,34 @@ def handle_order_approval(call):
     
     if action == 'approve':
         try:
+            plan_key = order_info.get('plan_key')
+            ok, reason = deliver_config_from_pool(user_id, plan_key)
+            if not ok:
+                bot.edit_message_text(
+                    f"✅ سفارش تأیید شد اما ارسال کانفیگ انجام نشد.\n\n"
+                    f"🆔 آیدی کاربر: `{user_id}`\n"
+                    f"📦 پلن: `{plan_key}`\n"
+                    f"⚠️ دلیل: {reason}",
+                    call.message.chat.id,
+                    call.message.message_id,
+                    parse_mode="Markdown"
+                )
+                bot.send_message(user_id, "✅ پرداخت شما تایید شد اما موجودی کانفیگ این پلن موقتاً خالی است. لطفاً با پشتیبانی تماس بگیرید.")
+                del pending_orders[order_id]
+                bot.answer_callback_query(call.id)
+                return
+
             bot.edit_message_text(
-                f"✅ سفارش تأیید شد!\n\n"
+                f"✅ سفارش تأیید شد و کانفیگ یکبارمصرف ارسال شد.\n\n"
                 f"🆔 آیدی کاربر: `{user_id}`\n"
                 f"👤 نام کاربری: `{order_info['username']}`\n"
                 f"📊 حجم: {order_info['data_plan']}\n"
                 f"⏱ مدت: {order_info['duration']}\n"
-                f"💰 مبلغ: {order_info['price']:,} تومان\n\n"
-                f"✍️ ارسال خودکار کانفیگ غیرفعال است.\n"
-                f"لطفا کانفیگ را دستی وارد و ارسال کنید.",
+                f"💰 مبلغ: {order_info['price']:,} تومان",
                 call.message.chat.id,
                 call.message.message_id,
                 parse_mode="Markdown"
             )
-
-            prompt = bot.send_message(
-                call.message.chat.id,
-                f"سرویس استارلینگ پر سرعت\n\n🔐 لطفا کانفیگ کاربر `{user_id}` را به صورت متن یا فایل ارسال کنید:",
-                parse_mode="Markdown"
-            )
-            bot.register_next_step_handler(prompt, lambda msg: process_config_file(msg, user_id, order_id))
         except Exception as e:
             print(f"Error auto-sending config for user {user_id}: {e}")
     elif action == 'reject':
@@ -3357,6 +3481,33 @@ def handle_order_approval(call):
     
     del pending_orders[order_id]
     
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith(('wallet_approve_', 'wallet_reject_')))
+def handle_wallet_charge_approval(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔️ دسترسی ندارید.")
+        return
+    action, charge_id = call.data.split('_', 2)[1], call.data.split('_', 2)[2]
+    full_charge_id = f"charge_{charge_id}" if not charge_id.startswith("charge_") else charge_id
+    if full_charge_id not in pending_wallet_charges:
+        bot.answer_callback_query(call.id, "❌ درخواست شارژ یافت نشد.")
+        return
+    charge = pending_wallet_charges[full_charge_id]
+    user_id = charge['user_id']
+    amount = charge['amount']
+
+    if action == 'approve':
+        users_db.setdefault(user_id, {}).setdefault('wallet_balance', 0)
+        users_db[user_id]['wallet_balance'] += amount
+        save_data()
+        bot.edit_message_text(f"✅ شارژ تایید شد.\n🆔 `{user_id}`\n💰 مبلغ: {amount:,} تومان", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+        bot.send_message(user_id, f"✅ کیف پول شما به مبلغ {amount:,} تومان شارژ شد. حالا می‌توانید خرید انجام دهید.")
+    else:
+        bot.edit_message_text(f"❌ شارژ رد شد.\n🆔 `{user_id}`\n💰 مبلغ: {amount:,} تومان", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+        bot.send_message(user_id, "❌ درخواست شارژ کیف پول شما رد شد.")
+
+    del pending_wallet_charges[full_charge_id]
     bot.answer_callback_query(call.id)
 
 if __name__ == "__main__":
